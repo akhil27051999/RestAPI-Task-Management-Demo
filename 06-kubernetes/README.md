@@ -202,7 +202,7 @@ kubectl delete namespace task-management
 - [ ] Set up log aggregation
 - [ ] Configure resource quotas
 - [ ] Test disaster recovery procedures
-```
+
 
 ## Deployment Commands
 
