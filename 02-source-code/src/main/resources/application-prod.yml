@@ -1,0 +1,22 @@
+spring:
+  datasource:
+    url: jdbc:mysql://${DB_HOST:mysql-service}:${DB_PORT:3306}/${DB_NAME:taskdb}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+logging:
+  level:
+    com.taskapi: INFO
+    org.springframework.web: WARN
+    org.hibernate: WARN
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
