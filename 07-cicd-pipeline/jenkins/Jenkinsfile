@@ -1,0 +1,183 @@
+pipeline {
+    agent any
+    
+    environment {
+        AWS_REGION = 'us-east-1'
+        ECR_REPOSITORY = 'task-management-api'
+        JAVA_VERSION = '17'
+        MAVEN_OPTS = '-Dmaven.repo.local=.m2/repository'
+    }
+    
+    tools {
+        maven 'Maven-3.9'
+        jdk 'JDK-17'
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                script {
+                    env.GIT_COMMIT_SHORT = sh(
+                        script: "git rev-parse --short HEAD",
+                        returnStdout: true
+                    ).trim()
+                }
+            }
+        }
+        
+        stage('Test') {
+            parallel {
+                stage('Unit Tests') {
+                    steps {
+                        sh 'mvn clean test'
+                    }
+                    post {
+                        always {
+                            publishTestResults testResultsPattern: 'target/surefire-reports/*.xml'
+                            publishCoverage adapters: [
+                                jacocoAdapter('target/site/jacoco/jacoco.xml')
+                            ]
+                        }
+                    }
+                }
+                
+                stage('Security Scan') {
+                    steps {
+                        sh 'mvn org.owasp:dependency-check-maven:check'
+                    }
+                    post {
+                        always {
+                            publishHTML([
+                                allowMissing: false,
+                                alwaysLinkToLastBuild: true,
+                                keepAll: true,
+                                reportDir: 'target',
+                                reportFiles: 'dependency-check-report.html',
+                                reportName: 'OWASP Dependency Check'
+                            ])
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Build') {
+            steps {
+                sh 'mvn clean package -DskipTests'
+                archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+            }
+        }
+        
+        stage('Docker Build & Push') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'develop'
+                }
+            }
+            steps {
+                script {
+                    withAWS(region: env.AWS_REGION, credentials: 'aws-credentials') {
+                        def ecrLogin = sh(
+                            script: "aws ecr get-login-password --region ${env.AWS_REGION}",
+                            returnStdout: true
+                        ).trim()
+                        
+                        sh "echo ${ecrLogin} | docker login --username AWS --password-stdin ${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
+                        
+                        def imageTag = env.GIT_COMMIT_SHORT
+                        def imageName = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com/${env.ECR_REPOSITORY}:${imageTag}"
+                        
+                        sh "docker build -t ${imageName} ."
+                        sh "docker push ${imageName}"
+                        
+                        if (env.BRANCH_NAME == 'main') {
+                            def latestImage = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com/${env.ECR_REPOSITORY}:latest"
+                            sh "docker tag ${imageName} ${latestImage}"
+                            sh "docker push ${latestImage}"
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Update GitOps') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'develop'
+                }
+            }
+            steps {
+                script {
+                    withCredentials([string(credentialsId: 'gitops-token', variable: 'GITOPS_TOKEN')]) {
+                        sh '''
+                            git config --global user.name "Jenkins"
+                            git config --global user.email "jenkins@company.com"
+                            
+                            git clone https://${GITOPS_TOKEN}@github.com/${GITHUB_ORG}/task-management-gitops.git
+                            cd task-management-gitops
+                            
+                            ENV="dev"
+                            if [ "${BRANCH_NAME}" = "main" ]; then
+                                ENV="production"
+                            fi
+                            
+                            sed -i "s|image: .*|image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${GIT_COMMIT_SHORT}|" argocd/config-repo/${ENV}/deployment.yaml
+                            
+                            git add .
+                            git commit -m "Update ${ENV} image to ${GIT_COMMIT_SHORT}"
+                            git push origin main
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy') {
+            parallel {
+                stage('Deploy Dev') {
+                    when {
+                        branch 'develop'
+                    }
+                    steps {
+                        echo 'Deploying to development environment via ArgoCD'
+                        // ArgoCD will automatically sync
+                    }
+                }
+                
+                stage('Deploy Production') {
+                    when {
+                        branch 'main'
+                    }
+                    steps {
+                        input message: 'Deploy to production?', ok: 'Deploy'
+                        echo 'Deploying to production environment via ArgoCD'
+                        // ArgoCD will automatically sync
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            slackSend(
+                channel: '#deployments',
+                color: 'good',
+                message: "✅ Task Management API pipeline succeeded for ${env.BRANCH_NAME}"
+            )
+        }
+        failure {
+            slackSend(
+                channel: '#deployments',
+                color: 'danger',
+                message: "❌ Task Management API pipeline failed for ${env.BRANCH_NAME}"
+            )
+        }
+    }
+}
