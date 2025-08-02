@@ -1,0 +1,181 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: task-management-api
+  JAVA_VERSION: '17'
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: testpass
+          MYSQL_DATABASE: taskdb_test
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup JDK
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ env.JAVA_VERSION }}
+        distribution: 'temurin'
+
+    - name: Cache Maven
+      uses: actions/cache@v3
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+
+    - name: Run Tests
+      run: mvn clean test
+
+    - name: Generate Coverage
+      run: mvn jacoco:report
+
+    - name: Upload Coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: target/site/jacoco/jacoco.xml
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup JDK
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ env.JAVA_VERSION }}
+        distribution: 'temurin'
+
+    - name: OWASP Dependency Check
+      run: mvn org.owasp:dependency-check-maven:check
+
+    - name: Upload Security Report
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-report
+        path: target/dependency-check-report.html
+
+  build:
+    name: Build & Push
+    runs-on: ubuntu-latest
+    needs: [test, security]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup JDK
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ env.JAVA_VERSION }}
+        distribution: 'temurin'
+
+    - name: Build Application
+      run: mvn clean package -DskipTests
+
+    - name: Configure AWS
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build & Push Image
+      run: |
+        IMAGE_TAG=${GITHUB_SHA::7}
+        docker build -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG .
+        docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG
+        
+        if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+          docker tag ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+          docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+        fi
+
+    - name: Update GitOps Repo
+      run: |
+        git config --global user.name "github-actions"
+        git config --global user.email "actions@github.com"
+        
+        git clone https://${{ secrets.GITOPS_TOKEN }}@github.com/${{ github.repository_owner }}/task-management-gitops.git
+        cd task-management-gitops
+        
+        IMAGE_TAG=${GITHUB_SHA::7}
+        ENV="dev"
+        if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+          ENV="production"
+        fi
+        
+        sed -i "s|image: .*|image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG|" argocd/config-repo/$ENV/deployment.yaml
+        
+        git add .
+        git commit -m "Update $ENV image to $IMAGE_TAG"
+        git push origin main
+
+  deploy-dev:
+    name: Deploy Dev
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/develop'
+    environment: development
+
+    steps:
+    - name: Deploy to Dev
+      run: |
+        echo "Deploying to development environment"
+        # ArgoCD will automatically sync the changes
+
+  deploy-prod:
+    name: Deploy Production
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    environment: production
+
+    steps:
+    - name: Deploy to Production
+      run: |
+        echo "Deploying to production environment"
+        # ArgoCD will automatically sync the changes
+
+  notify:
+    name: Notify
+    runs-on: ubuntu-latest
+    needs: [deploy-dev, deploy-prod]
+    if: always()
+
+    steps:
+    - name: Slack Notification
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#deployments'
+        text: 'Task Management API deployment ${{ job.status }}'
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
