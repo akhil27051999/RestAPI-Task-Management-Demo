@@ -1,18 +1,17 @@
 package com.taskapi.model;
 
 public enum Priority {
-    LOW("Low"),
-    MEDIUM("Medium"),
-    HIGH("High"),
-    CRITICAL("Critical");
-    
-    private final String displayName;
-    
-    Priority(String displayName) {
-        this.displayName = displayName;
-    }
-    
-    public String getDisplayName() {
-        return displayName;
+    LOW,
+    MEDIUM,
+    HIGH,
+    URGENT;
+
+    public static Priority fromString(String priority) {
+        for (Priority p : Priority.values()) {
+            if (p.name().equalsIgnoreCase(priority)) {
+                return p;
+            }
+        }
+        throw new IllegalArgumentException("Invalid priority: " + priority);
     }
 }
