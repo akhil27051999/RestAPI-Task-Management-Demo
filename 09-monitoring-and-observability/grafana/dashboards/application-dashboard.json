@@ -1,0 +1,88 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Task Management API Dashboard",
+    "tags": ["task-management", "spring-boot"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Request Rate",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(rate(http_server_requests_seconds_count{job=\"task-management-api\"}[5m]))",
+            "legendFormat": "Requests/sec"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "color": {"mode": "palette-classic"}
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Error Rate",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(rate(http_server_requests_seconds_count{job=\"task-management-api\",status=~\"5..\"}[5m])) / sum(rate(http_server_requests_seconds_count{job=\"task-management-api\"}[5m])) * 100",
+            "legendFormat": "Error %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 1},
+                {"color": "red", "value": 5}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Response Time (95th percentile)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"task-management-api\"}[5m])) by (le))",
+            "legendFormat": "95th percentile"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {"unit": "s"}
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0}
+      },
+      {
+        "id": 4,
+        "title": "JVM Memory Usage",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "jvm_memory_used_bytes{job=\"task-management-api\",area=\"heap\"}",
+            "legendFormat": "Heap Used - {{instance}}"
+          },
+          {
+            "expr": "jvm_memory_max_bytes{job=\"task-management-api\",area=\"heap\"}",
+            "legendFormat": "Heap Max - {{instance}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {"unit": "bytes"}
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+      }
+    ],
+    "time": {"from": "now-1h", "to": "now"},
+    "refresh": "30s"
+  }
+}
