@@ -13,7 +13,7 @@ Complete containerization strategy for the Task Management API with production-r
 │  │                 MULTI-STAGE BUILD                       │    │
 │  │                                                         │    │
 │  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐  │    │
-│  │  │   Stage 1   │───▶│   Stage 2   │───▶│   Stage 3  │  │    │
+│  │  │   Stage 1   │───▶│   Stage 2  │───▶│   Stage 3   │  │    │
 │  │  │    Build    │    │    Test     │    │   Runtime   │  │    │
 │  │  │             │    │             │    │             │  │    │
 │  │  │ Maven Build │    │ Run Tests   │    │ Final Image │  │    │
