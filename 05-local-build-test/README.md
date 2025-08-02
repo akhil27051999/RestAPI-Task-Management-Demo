@@ -274,7 +274,7 @@ docker system prune -f
 ```
 
 This local development environment provides everything needed for efficient development, testing, and debugging of the Task Management API.
-```
+
 
 ## Usage Instructions
 
