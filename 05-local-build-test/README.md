@@ -1,837 +1,606 @@
-# Local Build and Test Guide
+# 5-Local Build & Test Files
 
-Complete guide for building, testing, and running the Task Management API locally for development and validation.
-
-## Development Environment Setup
-
-### **Prerequisites**
-```bash
-# Required software versions
-Java 17 (Amazon Corretto recommended)
-Maven 3.9+
-Docker 24.0+
-Docker Compose 2.0+
-Git 2.30+
-curl (for API testing)
-```
-
-### **Environment Verification**
-```bash
-# Verify Java installation
-java -version
-# Expected: openjdk version "17.0.x" 2023-xx-xx
-
-# Verify Maven installation
-mvn -version
-# Expected: Apache Maven 3.9.x
-
-# Verify Docker installation
-docker --version
-docker-compose --version
-
-# Verify Git installation
-git --version
-```
-
-## Local Build Scripts
-
-### **build.sh - Application Build Script**
+## scripts/build.sh
 ```bash
 #!/bin/bash
-# scripts/build.sh
-# Build script for Task Management API
 
 set -e
 
-echo "🚀 Starting Task Management API Build Process..."
+PROJECT_NAME="task-management-api"
+VERSION="1.0.0"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Function to print colored output
-print_status() {
-    echo -e "${BLUE}[INFO]${NC} $1"
-}
-
-print_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
-}
-
-print_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
-}
-
-print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-# Check prerequisites
-check_prerequisites() {
-    print_status "Checking prerequisites..."
-    
-    if ! command -v java &> /dev/null; then
-        print_error "Java is not installed or not in PATH"
-        exit 1
-    fi
-    
-    if ! command -v mvn &> /dev/null; then
-        print_error "Maven is not installed or not in PATH"
-        exit 1
-    fi
-    
-    # Check Java version
-    JAVA_VERSION=$(java -version 2>&1 | grep -oP 'version "([0-9]+)' | grep -oP '[0-9]+' | head -1)
-    if [ "$JAVA_VERSION" -lt 17 ]; then
-        print_error "Java 17 or higher is required. Current version: $JAVA_VERSION"
-        exit 1
-    fi
-    
-    print_success "Prerequisites check passed"
-}
+echo "🚀 Building $PROJECT_NAME v$VERSION..."
 
 # Clean previous builds
-clean_build() {
-    print_status "Cleaning previous builds..."
-    mvn clean -q
-    
-    # Remove logs directory
-    if [ -d "logs" ]; then
-        rm -rf logs
-        print_status "Removed logs directory"
-    fi
-    
-    print_success "Clean completed"
-}
+echo "🧹 Cleaning previous builds..."
+mvn clean
 
-# Compile source code
-compile_code() {
-    print_status "Compiling source code..."
-    mvn compile -q
-    
-    if [ $? -eq 0 ]; then
-        print_success "Compilation successful"
-    else
-        print_error "Compilation failed"
-        exit 1
-    fi
-}
+# Compile and package
+echo "📦 Building application..."
+mvn compile package -DskipTests
 
-# Run unit tests
-run_tests() {
-    print_status "Running unit tests..."
-    mvn test -q
-    
-    if [ $? -eq 0 ]; then
-        print_success "All tests passed"
-    else
-        print_error "Some tests failed"
-        exit 1
-    fi
-}
-
-# Generate test coverage report
-generate_coverage() {
-    print_status "Generating test coverage report..."
-    mvn jacoco:report -q
-    
-    if [ -f "target/site/jacoco/index.html" ]; then
-        print_success "Coverage report generated: target/site/jacoco/index.html"
-    else
-        print_warning "Coverage report not generated"
-    fi
-}
-
-# Package application
-package_app() {
-    print_status "Packaging application..."
-    mvn package -DskipTests -q
-    
-    if [ -f "target/task-management-api-1.0.0.jar" ]; then
-        print_success "Application packaged successfully"
-        
-        # Show JAR file info
-        JAR_SIZE=$(du -h target/task-management-api-1.0.0.jar | cut -f1)
-        print_status "JAR file size: $JAR_SIZE"
-    else
-        print_error "Packaging failed"
-        exit 1
-    fi
-}
-
-# Security scan
-security_scan() {
-    print_status "Running security scan..."
-    mvn org.owasp:dependency-check-maven:check -q || true
-    
-    if [ -f "target/dependency-check-report.html" ]; then
-        print_success "Security scan completed: target/dependency-check-report.html"
-    else
-        print_warning "Security scan report not generated"
-    fi
-}
-
-# Main execution
-main() {
-    echo "=================================================="
-    echo "    Task Management API - Build Script"
-    echo "=================================================="
-    
-    check_prerequisites
-    clean_build
-    compile_code
-    run_tests
-    generate_coverage
-    package_app
-    security_scan
-    
-    echo "=================================================="
-    print_success "Build process completed successfully! 🎉"
-    echo "=================================================="
-    
-    echo ""
-    echo "📦 Artifacts generated:"
-    echo "   - JAR file: target/task-management-api-1.0.0.jar"
-    echo "   - Test coverage: target/site/jacoco/index.html"
-    echo "   - Security report: target/dependency-check-report.html"
-    echo ""
-    echo "🚀 Next steps:"
-    echo "   - Run locally: ./scripts/run-local.sh"
-    echo "   - Run tests: ./scripts/test.sh"
-    echo "   - Build Docker: docker build -t task-api ."
-}
-
-# Execute main function
-main "$@"
-```
-
-### **test.sh - Comprehensive Testing Script**
-```bash
-#!/bin/bash
-# scripts/test.sh
-# Comprehensive testing script for Task Management API
-
-set -e
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-print_status() {
-    echo -e "${BLUE}[TEST]${NC} $1"
-}
-
-print_success() {
-    echo -e "${GREEN}[PASS]${NC} $1"
-}
-
-print_error() {
-    echo -e "${RED}[FAIL]${NC} $1"
-}
-
-# Unit tests
-run_unit_tests() {
-    print_status "Running unit tests..."
-    mvn test -Dtest="*Test" -q
-    
-    if [ $? -eq 0 ]; then
-        print_success "Unit tests passed"
-    else
-        print_error "Unit tests failed"
-        return 1
-    fi
-}
-
-# Integration tests
-run_integration_tests() {
-    print_status "Running integration tests..."
-    mvn test -Dtest="*IT" -q
-    
-    if [ $? -eq 0 ]; then
-        print_success "Integration tests passed"
-    else
-        print_error "Integration tests failed"
-        return 1
-    fi
-}
-
-# API contract tests
-run_contract_tests() {
-    print_status "Running API contract tests..."
-    
-    # Start application in background for testing
-    java -jar target/task-management-api-1.0.0.jar \
-        --spring.profiles.active=test \
-        --server.port=8081 &
-    
-    APP_PID=$!
-    
-    # Wait for application to start
-    sleep 30
-    
-    # Test API endpoints
-    test_health_endpoint
-    test_task_crud_operations
-    
-    # Stop application
-    kill $APP_PID
-    wait $APP_PID 2>/dev/null || true
-}
-
-# Test health endpoint
-test_health_endpoint() {
-    print_status "Testing health endpoint..."
-    
-    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8081/actuator/health)
-    
-    if [ "$RESPONSE" = "200" ]; then
-        print_success "Health endpoint test passed"
-    else
-        print_error "Health endpoint test failed (HTTP $RESPONSE)"
-        return 1
-    fi
-}
-
-# Test CRUD operations
-test_task_crud_operations() {
-    print_status "Testing task CRUD operations..."
-    
-    # Create task
-    CREATE_RESPONSE=$(curl -s -X POST http://localhost:8081/api/v1/tasks \
-        -H "Content-Type: application/json" \
-        -d '{
-            "title": "Test Task",
-            "description": "This is a test task",
-            "status": "TODO",
-            "priority": "HIGH"
-        }')
-    
-    TASK_ID=$(echo $CREATE_RESPONSE | grep -o '"id":[0-9]*' | grep -o '[0-9]*')
-    
-    if [ -n "$TASK_ID" ]; then
-        print_success "Task creation test passed (ID: $TASK_ID)"
-    else
-        print_error "Task creation test failed"
-        return 1
-    fi
-    
-    # Get task
-    GET_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8081/api/v1/tasks/$TASK_ID)
-    
-    if [ "$GET_RESPONSE" = "200" ]; then
-        print_success "Task retrieval test passed"
-    else
-        print_error "Task retrieval test failed (HTTP $GET_RESPONSE)"
-        return 1
-    fi
-    
-    # Update task
-    UPDATE_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT http://localhost:8081/api/v1/tasks/$TASK_ID \
-        -H "Content-Type: application/json" \
-        -d '{"status": "IN_PROGRESS"}')
-    
-    if [ "$UPDATE_RESPONSE" = "200" ]; then
-        print_success "Task update test passed"
-    else
-        print_error "Task update test failed (HTTP $UPDATE_RESPONSE)"
-        return 1
-    fi
-    
-    # Delete task
-    DELETE_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE http://localhost:8081/api/v1/tasks/$TASK_ID)
-    
-    if [ "$DELETE_RESPONSE" = "204" ]; then
-        print_success "Task deletion test passed"
-    else
-        print_error "Task deletion test failed (HTTP $DELETE_RESPONSE)"
-        return 1
-    fi
-}
-
-# Performance tests
-run_performance_tests() {
-    print_status "Running performance tests..."
-    
-    # Simple load test with curl
-    print_status "Running basic load test (100 requests)..."
-    
-    for i in {1..100}; do
-        curl -s -o /dev/null http://localhost:8081/actuator/health &
-    done
-    
-    wait
-    print_success "Basic load test completed"
-}
-
-# Security tests
-run_security_tests() {
-    print_status "Running security tests..."
-    
-    # Test for common vulnerabilities
-    print_status "Testing for SQL injection..."
-    
-    INJECTION_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
-        "http://localhost:8081/api/v1/tasks?id=1'; DROP TABLE tasks; --")
-    
-    if [ "$INJECTION_RESPONSE" = "400" ] || [ "$INJECTION_RESPONSE" = "404" ]; then
-        print_success "SQL injection protection test passed"
-    else
-        print_error "SQL injection protection test failed"
-        return 1
-    fi
-}
+# Run tests
+echo "🧪 Running tests..."
+mvn test
 
 # Generate test reports
-generate_test_reports() {
-    print_status "Generating test reports..."
-    
-    # Surefire reports
-    mvn surefire-report:report -q
-    
-    # JaCoCo coverage report
-    mvn jacoco:report -q
-    
-    print_success "Test reports generated"
-    echo "   - Test results: target/site/surefire-report.html"
-    echo "   - Coverage report: target/site/jacoco/index.html"
-}
+echo "📊 Generating test reports..."
+mvn jacoco:report
 
-# Main execution
-main() {
-    echo "=================================================="
-    echo "    Task Management API - Test Suite"
-    echo "=================================================="
-    
-    # Build application first
-    if [ ! -f "target/task-management-api-1.0.0.jar" ]; then
-        print_status "Building application first..."
-        ./scripts/build.sh
-    fi
-    
-    # Run all test suites
-    run_unit_tests
-    run_integration_tests
-    generate_test_reports
-    
-    echo "=================================================="
-    print_success "All tests completed successfully! ✅"
-    echo "=================================================="
-}
+# Build Docker image
+echo "🐳 Building Docker image..."
+docker build -t $PROJECT_NAME:$VERSION .
+docker build -t $PROJECT_NAME:latest .
 
-# Execute main function
-main "$@"
+# Verify JAR file
+if [ -f "target/$PROJECT_NAME-$VERSION.jar" ]; then
+    echo "✅ JAR file created successfully: target/$PROJECT_NAME-$VERSION.jar"
+    echo "📏 JAR size: $(du -h target/$PROJECT_NAME-$VERSION.jar | cut -f1)"
+else
+    echo "❌ JAR file not found!"
+    exit 1
+fi
+
+# Verify Docker image
+if docker images | grep -q $PROJECT_NAME; then
+    echo "✅ Docker image created successfully"
+    echo "📏 Image size: $(docker images $PROJECT_NAME:latest --format "table {{.Size}}" | tail -n 1)"
+else
+    echo "❌ Docker image not found!"
+    exit 1
+fi
+
+echo ""
+echo "🎉 Build completed successfully!"
+echo "📋 Build artifacts:"
+echo "  - JAR: target/$PROJECT_NAME-$VERSION.jar"
+echo "  - Docker image: $PROJECT_NAME:$VERSION"
+echo "  - Docker image: $PROJECT_NAME:latest"
+echo "  - Test reports: target/site/jacoco/index.html"
+echo "  - Surefire reports: target/surefire-reports/"
 ```
 
-### **run-local.sh - Local Execution Script**
+## scripts/test.sh
 ```bash
 #!/bin/bash
-# scripts/run-local.sh
-# Script to run Task Management API locally
 
 set -e
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+echo "🧪 Running comprehensive tests for Task Management API..."
 
-print_status() {
-    echo -e "${BLUE}[INFO]${NC} $1"
-}
+# Set test environment
+export SPRING_PROFILES_ACTIVE=test
 
-print_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
-}
+# Start test database
+echo "🗄️ Starting test database..."
+docker run -d --name test-mysql \
+  -e MYSQL_ROOT_PASSWORD=testpass \
+  -e MYSQL_DATABASE=taskdb_test \
+  -e MYSQL_USER=testuser \
+  -e MYSQL_PASSWORD=testpass \
+  -p 3307:3306 \
+  mysql:8.0
 
-print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
+# Wait for database to be ready
+echo "⏳ Waiting for database to be ready..."
+sleep 30
 
-# Configuration
-APP_PORT=8080
-PROFILE=${1:-dev}
-JAR_FILE="target/task-management-api-1.0.0.jar"
-
-# Check if JAR file exists
-check_jar_file() {
-    if [ ! -f "$JAR_FILE" ]; then
-        print_error "JAR file not found: $JAR_FILE"
-        print_status "Building application..."
-        ./scripts/build.sh
-    fi
-}
-
-# Start database services
-start_dependencies() {
-    print_status "Starting database services..."
-    
-    # Check if Docker is running
-    if ! docker info > /dev/null 2>&1; then
-        print_error "Docker is not running. Please start Docker first."
-        exit 1
-    fi
-    
-    # Start MySQL and Redis using Docker Compose
-    docker-compose up -d mysql redis
-    
-    # Wait for services to be ready
-    print_status "Waiting for database services to be ready..."
-    
-    # Wait for MySQL
-    for i in {1..30}; do
-        if docker-compose exec mysql mysqladmin ping -h localhost -u root -prootpass > /dev/null 2>&1; then
-            print_success "MySQL is ready"
-            break
-        fi
-        sleep 2
-    done
-    
-    # Wait for Redis
-    for i in {1..30}; do
-        if docker-compose exec redis redis-cli ping > /dev/null 2>&1; then
-            print_success "Redis is ready"
-            break
-        fi
-        sleep 2
-    done
-}
-
-# Run application
-run_application() {
-    print_status "Starting Task Management API..."
-    print_status "Profile: $PROFILE"
-    print_status "Port: $APP_PORT"
-    
-    # Set JVM options
-    JAVA_OPTS="-Xmx512m -Xms256m -XX:+UseG1GC"
-    
-    # Run application
-    java $JAVA_OPTS -jar $JAR_FILE \
-        --spring.profiles.active=$PROFILE \
-        --server.port=$APP_PORT \
-        --spring.datasource.url=jdbc:mysql://localhost:3306/taskdb \
-        --spring.datasource.username=taskuser \
-        --spring.datasource.password=taskpass \
-        --spring.redis.host=localhost \
-        --spring.redis.port=6379 &
-    
-    APP_PID=$!
-    
-    # Wait for application to start
-    print_status "Waiting for application to start..."
-    
-    for i in {1..60}; do
-        if curl -s http://localhost:$APP_PORT/actuator/health > /dev/null 2>&1; then
-            print_success "Application started successfully!"
-            break
-        fi
-        sleep 2
-    done
-    
-    # Display application info
-    echo ""
-    echo "=================================================="
-    echo "🚀 Task Management API is running!"
-    echo "=================================================="
-    echo "📍 Application URL: http://localhost:$APP_PORT"
-    echo "📊 Health Check: http://localhost:$APP_PORT/actuator/health"
-    echo "📚 API Documentation: http://localhost:$APP_PORT/swagger-ui.html"
-    echo "📈 Metrics: http://localhost:$APP_PORT/actuator/prometheus"
-    echo ""
-    echo "🔧 Database Services:"
-    echo "   MySQL: localhost:3306 (taskuser/taskpass)"
-    echo "   Redis: localhost:6379"
-    echo ""
-    echo "📝 Logs: tail -f logs/task-api.log"
-    echo "🛑 Stop: Ctrl+C or kill $APP_PID"
-    echo "=================================================="
-    
-    # Wait for user to stop
-    wait $APP_PID
-}
-
-# Cleanup function
-cleanup() {
-    print_status "Shutting down services..."
-    
-    # Stop application if running
-    if [ ! -z "$APP_PID" ]; then
-        kill $APP_PID 2>/dev/null || true
-    fi
-    
-    # Stop Docker services
-    docker-compose down
-    
-    print_success "Cleanup completed"
-}
-
-# Trap cleanup on exit
-trap cleanup EXIT
-
-# Main execution
-main() {
-    echo "=================================================="
-    echo "    Task Management API - Local Runner"
-    echo "=================================================="
-    
-    check_jar_file
-    start_dependencies
-    run_application
-}
-
-# Execute main function
-main "$@"
-```
-
-## Testing Strategies
-
-### **Unit Testing with JUnit 5**
-```java
-// src/test/java/com/taskapi/service/TaskServiceTest.java
-@ExtendWith(MockitoExtension.class)
-class TaskServiceTest {
-    
-    @Mock
-    private TaskRepository taskRepository;
-    
-    @InjectMocks
-    private TaskServiceImpl taskService;
-    
-    @Test
-    @DisplayName("Should create task successfully")
-    void shouldCreateTaskSuccessfully() {
-        // Given
-        TaskCreateRequest request = new TaskCreateRequest();
-        request.setTitle("Test Task");
-        request.setDescription("Test Description");
-        request.setStatus(TaskStatus.TODO);
-        request.setPriority(Priority.HIGH);
-        
-        Task savedTask = new Task();
-        savedTask.setId(1L);
-        savedTask.setTitle("Test Task");
-        savedTask.setStatus(TaskStatus.TODO);
-        
-        when(taskRepository.save(any(Task.class))).thenReturn(savedTask);
-        
-        // When
-        TaskResponse response = taskService.createTask(request);
-        
-        // Then
-        assertThat(response).isNotNull();
-        assertThat(response.getId()).isEqualTo(1L);
-        assertThat(response.getTitle()).isEqualTo("Test Task");
-        assertThat(response.getStatus()).isEqualTo(TaskStatus.TODO);
-        
-        verify(taskRepository).save(any(Task.class));
-    }
-    
-    @Test
-    @DisplayName("Should throw exception when task not found")
-    void shouldThrowExceptionWhenTaskNotFound() {
-        // Given
-        Long taskId = 999L;
-        when(taskRepository.findById(taskId)).thenReturn(Optional.empty());
-        
-        // When & Then
-        assertThatThrownBy(() -> taskService.getTaskById(taskId))
-            .isInstanceOf(TaskNotFoundException.class)
-            .hasMessage("Task not found with id: " + taskId);
-    }
-}
-```
-
-### **Integration Testing with TestContainers**
-```java
-// src/test/java/com/taskapi/integration/TaskControllerIT.java
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
-class TaskControllerIT {
-    
-    @Container
-    static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0")
-            .withDatabaseName("testdb")
-            .withUsername("test")
-            .withPassword("test");
-    
-    @Autowired
-    private TestRestTemplate restTemplate;
-    
-    @Autowired
-    private TaskRepository taskRepository;
-    
-    @DynamicPropertySource
-    static void configureProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", mysql::getJdbcUrl);
-        registry.add("spring.datasource.username", mysql::getUsername);
-        registry.add("spring.datasource.password", mysql::getPassword);
-    }
-    
-    @Test
-    void shouldCreateAndRetrieveTask() {
-        // Given
-        TaskCreateRequest request = new TaskCreateRequest();
-        request.setTitle("Integration Test Task");
-        request.setDescription("Test Description");
-        request.setStatus(TaskStatus.TODO);
-        request.setPriority(Priority.MEDIUM);
-        
-        // When - Create task
-        ResponseEntity<TaskResponse> createResponse = restTemplate.postForEntity(
-            "/api/v1/tasks", request, TaskResponse.class);
-        
-        // Then - Verify creation
-        assertThat(createResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(createResponse.getBody()).isNotNull();
-        
-        Long taskId = createResponse.getBody().getId();
-        
-        // When - Retrieve task
-        ResponseEntity<TaskResponse> getResponse = restTemplate.getForEntity(
-            "/api/v1/tasks/" + taskId, TaskResponse.class);
-        
-        // Then - Verify retrieval
-        assertThat(getResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(getResponse.getBody().getTitle()).isEqualTo("Integration Test Task");
-    }
-}
-```
-
-## API Testing Scripts
-
-### **api-test.sh - API Endpoint Testing**
-```bash
-#!/bin/bash
-# scripts/api-test.sh
-# API endpoint testing script
-
-BASE_URL="http://localhost:8080"
-API_URL="$BASE_URL/api/v1"
-
-# Test health endpoint
-test_health() {
-    echo "Testing health endpoint..."
-    curl -s "$BASE_URL/actuator/health" | jq '.'
-}
-
-# Test task creation
-test_create_task() {
-    echo "Testing task creation..."
-    curl -s -X POST "$API_URL/tasks" \
-        -H "Content-Type: application/json" \
-        -d '{
-            "title": "API Test Task",
-            "description": "Created via API test",
-            "status": "TODO",
-            "priority": "HIGH",
-            "assigneeEmail": "test@example.com"
-        }' | jq '.'
-}
-
-# Test task listing
-test_list_tasks() {
-    echo "Testing task listing..."
-    curl -s "$API_URL/tasks" | jq '.'
-}
-
-# Run all tests
-echo "Starting API tests..."
-test_health
-test_create_task
-test_list_tasks
-echo "API tests completed!"
-```
-
-## Performance Testing
-
-### **load-test.sh - Simple Load Testing**
-```bash
-#!/bin/bash
-# scripts/load-test.sh
-# Simple load testing script
-
-BASE_URL="http://localhost:8080"
-CONCURRENT_USERS=10
-REQUESTS_PER_USER=100
-
-echo "Starting load test..."
-echo "Concurrent users: $CONCURRENT_USERS"
-echo "Requests per user: $REQUESTS_PER_USER"
-
-# Function to make requests
-make_requests() {
-    for i in $(seq 1 $REQUESTS_PER_USER); do
-        curl -s -o /dev/null "$BASE_URL/actuator/health"
-    done
-}
-
-# Start concurrent users
-for i in $(seq 1 $CONCURRENT_USERS); do
-    make_requests &
+# Check if database is ready
+until docker exec test-mysql mysqladmin ping -h localhost --silent; do
+  echo "Waiting for MySQL..."
+  sleep 2
 done
 
-# Wait for all requests to complete
-wait
+echo "✅ Database is ready!"
 
-echo "Load test completed!"
+# Run unit tests
+echo "🔬 Running unit tests..."
+mvn test -Dtest="*Test"
+
+# Run integration tests
+echo "🔗 Running integration tests..."
+mvn test -Dtest="*IT" -Dspring.datasource.url=jdbc:mysql://localhost:3307/taskdb_test
+
+# Run all tests with coverage
+echo "📊 Running all tests with coverage..."
+mvn clean test jacoco:report
+
+# Generate test summary
+echo ""
+echo "📈 Test Results Summary:"
+if [ -f "target/surefire-reports/TEST-*.xml" ]; then
+    TOTAL_TESTS=$(grep -h "tests=" target/surefire-reports/TEST-*.xml | sed 's/.*tests="\([0-9]*\)".*/\1/' | awk '{sum+=$1} END {print sum}')
+    FAILED_TESTS=$(grep -h "failures=" target/surefire-reports/TEST-*.xml | sed 's/.*failures="\([0-9]*\)".*/\1/' | awk '{sum+=$1} END {print sum}')
+    ERRORS=$(grep -h "errors=" target/surefire-reports/TEST-*.xml | sed 's/.*errors="\([0-9]*\)".*/\1/' | awk '{sum+=$1} END {print sum}')
+    
+    echo "  Total Tests: $TOTAL_TESTS"
+    echo "  Failed Tests: $FAILED_TESTS"
+    echo "  Errors: $ERRORS"
+    echo "  Success Rate: $(( (TOTAL_TESTS - FAILED_TESTS - ERRORS) * 100 / TOTAL_TESTS ))%"
+fi
+
+# Check code coverage
+if [ -f "target/site/jacoco/index.html" ]; then
+    echo "📊 Code coverage report generated: target/site/jacoco/index.html"
+fi
+
+# Cleanup test database
+echo "🧹 Cleaning up test database..."
+docker stop test-mysql || true
+docker rm test-mysql || true
+
+# Check test results
+if [ "$FAILED_TESTS" -gt 0 ] || [ "$ERRORS" -gt 0 ]; then
+    echo "❌ Some tests failed!"
+    exit 1
+else
+    echo "✅ All tests passed!"
+fi
+
+echo ""
+echo "🎉 Testing completed successfully!"
+echo "📋 Test artifacts:"
+echo "  - Test reports: target/surefire-reports/"
+echo "  - Coverage report: target/site/jacoco/index.html"
+echo "  - Test logs: target/surefire-reports/*.txt"
+```
+
+## scripts/run-local.sh
+```bash
+#!/bin/bash
+
+set -e
+
+PROJECT_NAME="task-management-api"
+DB_CONTAINER="local-mysql"
+APP_CONTAINER="local-task-api"
+
+echo "🚀 Starting Task Management API locally..."
+
+# Function to cleanup on exit
+cleanup() {
+    echo "🧹 Cleaning up containers..."
+    docker stop $APP_CONTAINER $DB_CONTAINER 2>/dev/null || true
+    docker rm $APP_CONTAINER $DB_CONTAINER 2>/dev/null || true
+}
+
+# Set trap to cleanup on script exit
+trap cleanup EXIT
+
+# Check if Docker is running
+if ! docker info > /dev/null 2>&1; then
+    echo "❌ Docker is not running. Please start Docker first."
+    exit 1
+fi
+
+# Start MySQL database
+echo "🗄️ Starting MySQL database..."
+docker run -d --name $DB_CONTAINER \
+  -e MYSQL_ROOT_PASSWORD=password123 \
+  -e MYSQL_DATABASE=taskdb \
+  -e MYSQL_USER=taskuser \
+  -e MYSQL_PASSWORD=taskpass \
+  -p 3306:3306 \
+  --health-cmd="mysqladmin ping -h localhost" \
+  --health-interval=10s \
+  --health-timeout=5s \
+  --health-retries=5 \
+  mysql:8.0
+
+# Wait for database to be healthy
+echo "⏳ Waiting for database to be ready..."
+until [ "$(docker inspect --format='{{.State.Health.Status}}' $DB_CONTAINER)" = "healthy" ]; do
+    echo "Waiting for MySQL to be healthy..."
+    sleep 5
+done
+
+echo "✅ Database is ready!"
+
+# Build application if JAR doesn't exist
+if [ ! -f "target/$PROJECT_NAME-1.0.0.jar" ]; then
+    echo "📦 Building application..."
+    mvn clean package -DskipTests
+fi
+
+# Run application
+echo "🚀 Starting application..."
+docker run -d --name $APP_CONTAINER \
+  --link $DB_CONTAINER:mysql \
+  -e SPRING_PROFILES_ACTIVE=dev \
+  -e SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/taskdb \
+  -e SPRING_DATASOURCE_USERNAME=taskuser \
+  -e SPRING_DATASOURCE_PASSWORD=taskpass \
+  -p 8080:8080 \
+  $PROJECT_NAME:latest
+
+# Wait for application to start
+echo "⏳ Waiting for application to start..."
+sleep 30
+
+# Health check
+echo "🏥 Performing health check..."
+for i in {1..30}; do
+    if curl -f -s http://localhost:8080/actuator/health > /dev/null; then
+        echo "✅ Application is healthy!"
+        break
+    else
+        echo "Waiting for application to be ready... ($i/30)"
+        sleep 5
+    fi
+    
+    if [ $i -eq 30 ]; then
+        echo "❌ Application failed to start properly"
+        echo "📋 Application logs:"
+        docker logs $APP_CONTAINER
+        exit 1
+    fi
+done
+
+# Display application info
+echo ""
+echo "🎉 Task Management API is running locally!"
+echo ""
+echo "📋 Application Information:"
+echo "  🌐 API Base URL: http://localhost:8080"
+echo "  🏥 Health Check: http://localhost:8080/actuator/health"
+echo "  📊 Metrics: http://localhost:8080/actuator/prometheus"
+echo "  📖 API Endpoints:"
+echo "    - GET    /api/tasks           - Get all tasks"
+echo "    - POST   /api/tasks           - Create new task"
+echo "    - GET    /api/tasks/{id}      - Get task by ID"
+echo "    - PUT    /api/tasks/{id}      - Update task"
+echo "    - DELETE /api/tasks/{id}      - Delete task"
+echo ""
+echo "🗄️ Database Information:"
+echo "  📍 Host: localhost:3306"
+echo "  🗃️ Database: taskdb"
+echo "  👤 Username: taskuser"
+echo "  🔑 Password: taskpass"
+echo ""
+
+# Test API endpoints
+echo "🧪 Testing API endpoints..."
+
+# Test health endpoint
+echo "Testing health endpoint..."
+curl -s http://localhost:8080/actuator/health | jq . || echo "Health check response received"
+
+# Test create task
+echo "Testing create task..."
+TASK_ID=$(curl -s -X POST http://localhost:8080/api/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Test Task",
+    "description": "This is a test task created by run-local script",
+    "priority": "HIGH"
+  }' | jq -r '.id' 2>/dev/null || echo "1")
+
+echo "Created task with ID: $TASK_ID"
+
+# Test get all tasks
+echo "Testing get all tasks..."
+curl -s http://localhost:8080/api/tasks | jq . || echo "Get all tasks response received"
+
+echo ""
+echo "✅ API testing completed!"
+echo ""
+echo "🔧 Useful commands:"
+echo "  📋 View application logs: docker logs -f $APP_CONTAINER"
+echo "  📋 View database logs: docker logs -f $DB_CONTAINER"
+echo "  🗄️ Connect to database: docker exec -it $DB_CONTAINER mysql -u taskuser -p taskdb"
+echo "  🛑 Stop application: docker stop $APP_CONTAINER $DB_CONTAINER"
+echo ""
+echo "Press Ctrl+C to stop the application and cleanup containers"
+
+# Keep script running
+while true; do
+    sleep 10
+    # Check if containers are still running
+    if ! docker ps | grep -q $APP_CONTAINER; then
+        echo "❌ Application container stopped unexpectedly"
+        docker logs $APP_CONTAINER
+        break
+    fi
+done
+```
+
+## README.md
+```markdown
+# Local Build & Test Environment
+
+## Overview
+This directory contains scripts for building, testing, and running the Task Management API locally for development and testing purposes.
+
+## Prerequisites
+- Java 17+
+- Maven 3.6+
+- Docker & Docker Compose
+- curl (for API testing)
+- jq (for JSON parsing, optional)
+
+## Scripts
+
+### 1. build.sh
+Builds the application and creates Docker images.
+
+**Features:**
+- Cleans previous builds
+- Compiles and packages the application
+- Runs unit tests
+- Generates test coverage reports
+- Builds Docker images
+- Verifies build artifacts
+
+**Usage:**
+```bash
+chmod +x scripts/build.sh
+./scripts/build.sh
+```
+
+**Output:**
+- JAR file: `target/task-management-api-1.0.0.jar`
+- Docker images: `task-management-api:1.0.0` and `task-management-api:latest`
+- Test reports: `target/site/jacoco/index.html`
+
+### 2. test.sh
+Runs comprehensive tests with a temporary test database.
+
+**Features:**
+- Starts temporary MySQL test database
+- Runs unit tests
+- Runs integration tests
+- Generates code coverage reports
+- Provides test summary
+- Cleans up test environment
+
+**Usage:**
+```bash
+chmod +x scripts/test.sh
+./scripts/test.sh
+```
+
+**Output:**
+- Test reports: `target/surefire-reports/`
+- Coverage report: `target/site/jacoco/index.html`
+- Test summary with success rate
+
+### 3. run-local.sh
+Runs the complete application stack locally using Docker.
+
+**Features:**
+- Starts MySQL database container
+- Builds application if needed
+- Runs application container
+- Performs health checks
+- Tests API endpoints
+- Provides connection information
+
+**Usage:**
+```bash
+chmod +x scripts/run-local.sh
+./scripts/run-local.sh
+```
+
+**Access Points:**
+- API: http://localhost:8080
+- Health: http://localhost:8080/actuator/health
+- Metrics: http://localhost:8080/actuator/prometheus
+
+## Quick Start
+
+### 1. Build Application
+```bash
+./scripts/build.sh
+```
+
+### 2. Run Tests
+```bash
+./scripts/test.sh
+```
+
+### 3. Start Local Environment
+```bash
+./scripts/run-local.sh
+```
+
+### 4. Test API
+```bash
+# Health check
+curl http://localhost:8080/actuator/health
+
+# Create task
+curl -X POST http://localhost:8080/api/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "My First Task",
+    "description": "This is a test task",
+    "priority": "HIGH"
+  }'
+
+# Get all tasks
+curl http://localhost:8080/api/tasks
+
+# Get specific task
+curl http://localhost:8080/api/tasks/1
 ```
 
 ## Development Workflow
 
-### **Daily Development Cycle**
+### 1. Code Changes
 ```bash
-# 1. Pull latest changes
-git pull origin main
-
-# 2. Build and test
-./scripts/build.sh
+# Make your code changes
+# Run tests to verify
 ./scripts/test.sh
 
-# 3. Run locally for development
-./scripts/run-local.sh dev
-
-# 4. Make changes and test
-# ... code changes ...
-
-# 5. Quick test cycle
-mvn test -Dtest=TaskServiceTest
-./scripts/api-test.sh
-
-# 6. Commit changes
-git add .
-git commit -m "feat: add new task filtering feature"
-git push origin feature/task-filtering
+# Build new version
+./scripts/build.sh
 ```
 
-### **Pre-commit Validation**
+### 2. Local Testing
 ```bash
-#!/bin/bash
-# scripts/pre-commit.sh
-# Pre-commit validation script
+# Start local environment
+./scripts/run-local.sh
 
-echo "Running pre-commit validation..."
+# Test your changes
+# Use Postman, curl, or browser
+```
 
-# Format code
-mvn spotless:apply -q
+### 3. Integration Testing
+```bash
+# Run full test suite
+./scripts/test.sh
+
+# Check coverage reports
+open target/site/jacoco/index.html
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Port already in use**
+```bash
+# Check what's using port 8080
+lsof -i :8080
+
+# Kill process if needed
+kill -9 <PID>
+```
+
+2. **Docker containers not starting**
+```bash
+# Check Docker status
+docker ps -a
+
+# View container logs
+docker logs <container-name>
+
+# Clean up containers
+docker stop $(docker ps -aq)
+docker rm $(docker ps -aq)
+```
+
+3. **Database connection issues**
+```bash
+# Check MySQL container
+docker exec -it local-mysql mysql -u taskuser -p
+
+# Verify database exists
+SHOW DATABASES;
+USE taskdb;
+SHOW TABLES;
+```
+
+4. **Build failures**
+```bash
+# Clean Maven cache
+mvn clean
+
+# Update dependencies
+mvn dependency:resolve
+
+# Check Java version
+java -version
+mvn -version
+```
+
+### Logs and Debugging
+
+```bash
+# Application logs
+docker logs -f local-task-api
+
+# Database logs
+docker logs -f local-mysql
+
+# Maven debug
+mvn -X test
+
+# Spring Boot debug
+export SPRING_PROFILES_ACTIVE=dev
+export LOGGING_LEVEL_COM_TASKAPI=DEBUG
+```
+
+## Environment Variables
+
+### Development
+```bash
+export SPRING_PROFILES_ACTIVE=dev
+export SPRING_DATASOURCE_URL=jdbc:mysql://localhost:3306/taskdb
+export SPRING_DATASOURCE_USERNAME=taskuser
+export SPRING_DATASOURCE_PASSWORD=taskpass
+```
+
+### Testing
+```bash
+export SPRING_PROFILES_ACTIVE=test
+export SPRING_DATASOURCE_URL=jdbc:mysql://localhost:3307/taskdb_test
+```
+
+## Performance Testing
+
+### Load Testing with curl
+```bash
+# Simple load test
+for i in {1..100}; do
+  curl -s http://localhost:8080/api/tasks > /dev/null &
+done
+wait
+```
+
+### Memory and CPU Monitoring
+```bash
+# Monitor Docker containers
+docker stats
+
+# Monitor Java process
+jps -l
+jstat -gc <pid>
+```
+
+## Cleanup
+
+### Stop Local Environment
+```bash
+# Stop containers
+docker stop local-task-api local-mysql
+
+# Remove containers
+docker rm local-task-api local-mysql
+
+# Remove images (optional)
+docker rmi task-management-api:latest
+```
+
+### Clean Build Artifacts
+```bash
+# Clean Maven build
+mvn clean
+
+# Remove Docker images
+docker system prune -f
+```
+
+This local development environment provides everything needed for efficient development, testing, and debugging of the Task Management API.
+```
+
+## Usage Instructions
+
+### Make Scripts Executable
+```bash
+chmod +x 5-local-build-test/scripts/*.sh
+```
+
+### Run Scripts
+```bash
+# Build application
+./5-local-build-test/scripts/build.sh
 
 # Run tests
-./scripts/test.sh
+./5-local-build-test/scripts/test.sh
 
-# Security scan
-mvn org.owasp:dependency-check-maven:check -q
-
-# Build application
-./scripts/build.sh
-
-echo "Pre-commit validation completed!"
+# Start local environment
+./5-local-build-test/scripts/run-local.sh
 ```
 
-This comprehensive local development setup provides all the tools and scripts needed for efficient development, testing, and validation of the Task Management API.
+This provides a complete local development environment with build automation, comprehensive testing, and local runtime setup.
