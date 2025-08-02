@@ -1,3 +1,5 @@
+# Trouble-Shooting Guide
+
 ## Common Issues and Solutions
 
 ### Application Issues
