@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  task-api:
+    build:
+      target: build-env  # Use build stage for development
+    volumes:
+      - .:/app
+      - ~/.m2:/root/.m2  # Maven cache
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      SPRING_DEVTOOLS_RESTART_ENABLED: true
+      LOGGING_LEVEL_COM_TASKAPI: DEBUG
+    command: ["./mvnw", "spring-boot:run", "-Dspring-boot.run.profiles=dev"]
+
+  mysql:
+    ports:
+      - "3306:3306"  # Expose for external access
+    environment:
+      MYSQL_ROOT_PASSWORD: devpass
+      MYSQL_PASSWORD: devpass
+
+  redis:
+    ports:
+      - "6379:6379"  # Expose for external access
