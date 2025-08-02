@@ -1,4 +1,4 @@
-# Containerization - Docker Setup
+# Containerization Guide
 
 Complete containerization strategy for the Task Management API with production-ready Docker configurations.
 
@@ -32,8 +32,6 @@ Complete containerization strategy for the Task Management API with production-r
 │  └─────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
 ```
-
-# Containerization Guide
 
 ## Overview
 This directory contains Docker configuration files for containerizing the Task Management API with a complete development and production setup.
