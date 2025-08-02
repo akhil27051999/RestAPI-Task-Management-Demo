@@ -2,7 +2,6 @@
 
 ## .github/workflows/ci-pipeline.yml
 
-```yaml
 name: CI/CD Pipeline
 
 on:
