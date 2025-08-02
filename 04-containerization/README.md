@@ -33,270 +33,246 @@ Complete containerization strategy for the Task Management API with production-r
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Dockerfile - Production Ready
+# Build & Dependency Management Files
 
-### **Dockerfile**
+## pom.xml
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" 
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.0</version>
+        <relativePath/>
+    </parent>
+    
+    <groupId>com.taskapi</groupId>
+    <artifactId>task-management-api</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+    <name>task-management-api</name>
+    <description>Task Management REST API</description>
+    
+    <properties>
+        <java.version>17</java.version>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+    </properties>
+    
+    <dependencies>
+        <!-- Spring Boot Starters -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        
+        <!-- Database -->
+        <dependency>
+            <groupId>mysql</groupId>
+            <artifactId>mysql-connector-java</artifactId>
+            <version>8.0.33</version>
+            <scope>runtime</scope>
+        </dependency>
+        
+        <!-- Metrics -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+        
+        <!-- Lombok -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        
+        <!-- Test Dependencies -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+    
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+            
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <source>17</source>
+                    <target>17</target>
+                </configuration>
+            </plugin>
+            
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.8</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+```
+
+## Dockerfile
 ```dockerfile
-# ===============================================================================
-# TASK MANAGEMENT API - PRODUCTION DOCKERFILE
-# Multi-stage build for optimal security and performance
-# ===============================================================================
+# Multi-stage build for production
+FROM openjdk:17-jdk-slim as builder
 
-# ===============================================================================
-# STAGE 1: BUILD ENVIRONMENT
-# Purpose: Compile application and run tests
-# ===============================================================================
-FROM public.ecr.aws/amazoncorretto/amazoncorretto:17-alpine AS build-env
-
-# Set build arguments
-ARG JAR_FILE=target/*.jar
-ARG BUILD_DATE
-ARG VCS_REF
-ARG VERSION=1.0.0
-
-# Add labels for container metadata
-LABEL maintainer="devops@company.com" \
-      org.opencontainers.image.title="Task Management API" \
-      org.opencontainers.image.description="REST API for task management" \
-      org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.created="${BUILD_DATE}" \
-      org.opencontainers.image.revision="${VCS_REF}" \
-      org.opencontainers.image.source="https://github.com/company/task-management-api"
-
-# Install build dependencies
-RUN apk add --no-cache \
-    maven \
-    git \
-    curl \
-    && rm -rf /var/cache/apk/*
-
-# Create app directory
 WORKDIR /app
 
-# Copy Maven configuration files first (for better caching)
-COPY pom.xml ./
-COPY .mvn .mvn
-COPY mvnw ./
+# Copy Maven wrapper and pom.xml
+COPY .mvn/ .mvn/
+COPY mvnw pom.xml ./
 
-# Make Maven wrapper executable
-RUN chmod +x mvnw
-
-# Download dependencies (cached layer if pom.xml doesn't change)
-RUN ./mvnw dependency:go-offline -B -q
+# Download dependencies (cached layer)
+RUN ./mvnw dependency:go-offline -B
 
 # Copy source code
 COPY src ./src
 
 # Build application
-RUN ./mvnw clean package -DskipTests -B -q && \
-    mv target/*.jar app.jar
+RUN ./mvnw clean package -DskipTests
 
-# ===============================================================================
-# STAGE 2: SECURITY SCANNING & TESTING
-# Purpose: Run security scans and tests
-# ===============================================================================
-FROM build-env AS test-env
+# Production stage
+FROM openjdk:17-jre-slim
 
-# Install security scanning tools
-RUN apk add --no-cache \
-    trivy \
-    && rm -rf /var/cache/apk/*
+# Create non-root user
+RUN groupadd -r appuser && useradd -r -g appuser appuser
 
-# Run tests
-RUN ./mvnw test -B -q
+# Install curl for health checks
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
 
-# Run security scan on dependencies
-RUN ./mvnw org.owasp:dependency-check-maven:check -B -q || true
-
-# ===============================================================================
-# STAGE 3: RUNTIME ENVIRONMENT
-# Purpose: Minimal production runtime
-# ===============================================================================
-FROM public.ecr.aws/amazoncorretto/amazoncorretto:17-alpine AS runtime
-
-# Install runtime dependencies only
-RUN apk add --no-cache \
-    curl \
-    dumb-init \
-    && rm -rf /var/cache/apk/*
-
-# Create non-root user for security
-ENV APPUSER=taskapi
-ENV APPUID=1000
-ENV APPGID=1000
-
-RUN addgroup -g $APPGID $APPUSER && \
-    adduser -D -u $APPUID -G $APPUSER -s /bin/sh $APPUSER
-
-# Create app directory with proper permissions
-RUN mkdir -p /app/logs /app/tmp && \
-    chown -R $APPUSER:$APPUSER /app
-
-# Set working directory
 WORKDIR /app
 
-# Copy application JAR from build stage
-COPY --from=build-env --chown=$APPUSER:$APPUSER /app/app.jar ./
+# Copy JAR from builder stage
+COPY --from=builder /app/target/task-management-api-*.jar app.jar
 
-# Copy health check script
-COPY --chown=$APPUSER:$APPUSER scripts/health-check.sh ./
-RUN chmod +x health-check.sh
+# Change ownership to non-root user
+RUN chown -R appuser:appuser /app
 
 # Switch to non-root user
-USER $APPUSER
+USER appuser
 
-# Configure JVM for container environment
-ENV JAVA_OPTS="-XX:+UseContainerSupport \
-               -XX:MaxRAMPercentage=75.0 \
-               -XX:+UseG1GC \
-               -XX:+UseStringDeduplication \
-               -Djava.security.egd=file:/dev/./urandom \
-               -Dspring.profiles.active=prod"
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8080/actuator/health || exit 1
 
-# Expose application port
+# Expose port
 EXPOSE 8080
 
-# Add health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD ./health-check.sh || exit 1
+# JVM optimization for containers
+ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
 
-# Use dumb-init for proper signal handling
-ENTRYPOINT ["dumb-init", "--"]
-
-# Start application
-CMD ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+# Run application
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
 ```
 
-### **Health Check Script**
-```bash
-#!/bin/sh
-# scripts/health-check.sh
-# Health check script for container
-
-set -e
-
-# Check if application is responding
-if curl -f -s http://localhost:8080/actuator/health > /dev/null; then
-    echo "Health check passed"
-    exit 0
-else
-    echo "Health check failed"
-    exit 1
-fi
-```
-
-### **.dockerignore**
-```dockerignore
-# Build artifacts
-target/
-*.jar
-*.war
-*.ear
-
-# IDE files
-.idea/
-.vscode/
-*.iml
-*.ipr
-*.iws
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Git
-.git/
-.gitignore
-
-# Documentation
-README.md
-docs/
-
-# Docker files
-Dockerfile*
-docker-compose*.yml
-
-# CI/CD
-.github/
-.gitlab-ci.yml
-Jenkinsfile
-
-# Logs
-logs/
-*.log
-
-# Temporary files
-tmp/
-temp/
-*.tmp
-*.temp
-
-# Node modules (if any)
-node_modules/
-
-# Environment files
-.env
-.env.local
-.env.*.local
-
-# Test coverage
-coverage/
-.nyc_output/
-
-# Maven
-.mvn/wrapper/maven-wrapper.jar
-```
-
-## Docker Compose - Local Development
-
-### **docker-compose.yml**
+## docker-compose.yml
 ```yaml
 version: '3.8'
 
 services:
-  # Task Management API
-  task-api:
+  mysql:
+    image: mysql:8.0
+    container_name: task-management-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: password123
+      MYSQL_DATABASE: taskdb
+      MYSQL_USER: taskuser
+      MYSQL_PASSWORD: taskpass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - task-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+      interval: 30s
+
+  app:
     build:
       context: .
       dockerfile: Dockerfile
-      target: runtime
-      args:
-        BUILD_DATE: ${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
-        VCS_REF: ${VCS_REF:-$(git rev-parse --short HEAD)}
-        VERSION: ${VERSION:-1.0.0}
-    container_name: task-api
-    ports:
-      - "8080:8080"
+    container_name: task-management-api
     environment:
-      # Database configuration
+      SPRING_PROFILES_ACTIVE: dev
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/taskdb
       SPRING_DATASOURCE_USERNAME: taskuser
       SPRING_DATASOURCE_PASSWORD: taskpass
-      
-      # Redis configuration
-      SPRING_REDIS_HOST: redis
-      SPRING_REDIS_PORT: 6379
-      
-      # Application configuration
-      SPRING_PROFILES_ACTIVE: dev
-      LOGGING_LEVEL_COM_TASKAPI: DEBUG
-      
-      # JVM configuration
-      JAVA_OPTS: >-
-        -Xmx512m
-        -Xms256m
-        -XX:+UseG1GC
-        -Dspring.profiles.active=dev
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: taskdb
+      DB_USERNAME: taskuser
+      DB_PASSWORD: taskpass
+    ports:
+      - "8080:8080"
     depends_on:
       mysql:
         condition: service_healthy
-      redis:
-        condition: service_healthy
     networks:
       - task-network
-    volumes:
-      - ./logs:/app/logs
-    restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
       interval: 30s
@@ -304,297 +280,148 @@ services:
       retries: 3
       start_period: 60s
 
-  # MySQL Database
-  mysql:
-    image: mysql:8.0
-    container_name: task-mysql
-    ports:
-      - "3306:3306"
-    environment:
-      MYSQL_ROOT_PASSWORD: rootpass
-      MYSQL_DATABASE: taskdb
-      MYSQL_USER: taskuser
-      MYSQL_PASSWORD: taskpass
-      MYSQL_ROOT_HOST: '%'
-    volumes:
-      - mysql_data:/var/lib/mysql
-      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
-    networks:
-      - task-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    command: >
-      --default-authentication-plugin=mysql_native_password
-      --character-set-server=utf8mb4
-      --collation-server=utf8mb4_unicode_ci
-      --innodb-buffer-pool-size=256M
-      --max-connections=200
-
-  # Redis Cache
-  redis:
-    image: redis:7-alpine
-    container_name: task-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-      - ./config/redis.conf:/usr/local/etc/redis/redis.conf:ro
-    networks:
-      - task-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    command: redis-server /usr/local/etc/redis/redis.conf
-
-  # Prometheus for monitoring
   prometheus:
     image: prom/prometheus:latest
-    container_name: task-prometheus
+    container_name: task-management-prometheus
     ports:
       - "9090:9090"
     volumes:
-      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
     networks:
       - task-network
-    restart: unless-stopped
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
       - '--web.console.libraries=/etc/prometheus/console_libraries'
       - '--web.console.templates=/etc/prometheus/consoles'
-      - '--web.enable-lifecycle'
 
-  # Grafana for visualization
   grafana:
     image: grafana/grafana:latest
-    container_name: task-grafana
+    container_name: task-management-grafana
     ports:
       - "3000:3000"
     environment:
       GF_SECURITY_ADMIN_PASSWORD: admin123
-      GF_USERS_ALLOW_SIGN_UP: false
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources:ro
     networks:
       - task-network
-    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  grafana_data:
 
 networks:
   task-network:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
-
-volumes:
-  mysql_data:
-    driver: local
-  redis_data:
-    driver: local
-  prometheus_data:
-    driver: local
-  grafana_data:
-    driver: local
 ```
 
-### **docker-compose.override.yml** (Development)
-```yaml
-version: '3.8'
+## Additional Required Files
 
-services:
-  task-api:
-    build:
-      target: build-env  # Use build stage for development
-    volumes:
-      - .:/app
-      - ~/.m2:/root/.m2  # Maven cache
-    environment:
-      SPRING_PROFILES_ACTIVE: dev
-      SPRING_DEVTOOLS_RESTART_ENABLED: true
-      LOGGING_LEVEL_COM_TASKAPI: DEBUG
-    command: ["./mvnw", "spring-boot:run", "-Dspring-boot.run.profiles=dev"]
-
-  mysql:
-    ports:
-      - "3306:3306"  # Expose for external access
-    environment:
-      MYSQL_ROOT_PASSWORD: devpass
-      MYSQL_PASSWORD: devpass
-
-  redis:
-    ports:
-      - "6379:6379"  # Expose for external access
+### .dockerignore
+```
+target/
+!target/task-management-api-*.jar
+.git
+.gitignore
+README.md
+Dockerfile
+docker-compose.yml
+.dockerignore
+*.md
+.mvn/wrapper/maven-wrapper.jar
+src/test/
 ```
 
-### **docker-compose.prod.yml** (Production)
-```yaml
-version: '3.8'
+### .gitignore
+```
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
 
-services:
-  task-api:
-    image: task-management-api:${VERSION:-latest}
-    environment:
-      SPRING_PROFILES_ACTIVE: prod
-      JAVA_OPTS: >-
-        -Xmx1g
-        -Xms512m
-        -XX:+UseG1GC
-        -XX:MaxGCPauseMillis=200
-        -Dspring.profiles.active=prod
-    deploy:
-      replicas: 2
-      resources:
-        limits:
-          memory: 1G
-          cpus: '0.5'
-        reservations:
-          memory: 512M
-          cpus: '0.25'
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
+# IDE
+.idea/
+*.iws
+*.iml
+*.ipr
+.vscode/
+.classpath
+.project
+.settings/
 
-  mysql:
-    environment:
-      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
-      MYSQL_PASSWORD_FILE: /run/secrets/mysql_password
-    secrets:
-      - mysql_root_password
-      - mysql_password
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '0.5'
+# OS
+.DS_Store
+Thumbs.db
 
-secrets:
-  mysql_root_password:
-    external: true
-  mysql_password:
-    external: true
+# Logs
+*.log
+logs/
+
+# Runtime
+*.pid
+*.seed
+*.pid.lock
+
+# Environment
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Database
+*.db
+*.sqlite
+
+# Docker
+.docker/
 ```
 
-## Configuration Files
+## Usage Instructions
 
-### **Redis Configuration**
-```conf
-# config/redis.conf
-# Redis configuration for Task Management API
+### Build Application
+```bash
+# Build with Maven
+mvn clean package
 
-# Network
-bind 0.0.0.0
-port 6379
-timeout 300
-tcp-keepalive 60
-
-# Memory
-maxmemory 256mb
-maxmemory-policy allkeys-lru
-
-# Persistence
-save 900 1
-save 300 10
-save 60 10000
-
-# Security
-requirepass taskredis123
-
-# Logging
-loglevel notice
-logfile ""
-
-# Performance
-tcp-backlog 511
-databases 16
+# Build Docker image
+docker build -t task-management-api:latest .
 ```
 
-### **Prometheus Configuration**
-```yaml
-# config/prometheus.yml
-global:
-  scrape_interval: 15s
-  evaluation_interval: 15s
+### Run Locally
+```bash
+# Start all services
+docker-compose up -d
 
-rule_files:
-  # - "first_rules.yml"
-  # - "second_rules.yml"
+# View logs
+docker-compose logs -f app
 
-scrape_configs:
-  - job_name: 'task-api'
-    static_configs:
-      - targets: ['task-api:8080']
-    metrics_path: '/actuator/prometheus'
-    scrape_interval: 10s
-
-  - job_name: 'mysql'
-    static_configs:
-      - targets: ['mysql:3306']
-
-  - job_name: 'redis'
-    static_configs:
-      - targets: ['redis:6379']
+# Stop services
+docker-compose down
 ```
 
-### **Database Initialization Script**
-```sql
--- scripts/init-db.sql
--- Database initialization for Task Management API
+### Access Application
+- **API**: http://localhost:8080/api/tasks
+- **Health Check**: http://localhost:8080/actuator/health
+- **Metrics**: http://localhost:8080/actuator/prometheus
+- **Prometheus**: http://localhost:9090
+- **Grafana**: http://localhost:3000 (admin/admin123)
 
-USE taskdb;
-
--- Create tasks table
-CREATE TABLE IF NOT EXISTS tasks (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    title VARCHAR(255) NOT NULL,
-    description TEXT,
-    status ENUM('TODO', 'IN_PROGRESS', 'REVIEW', 'DONE', 'BLOCKED') NOT NULL DEFAULT 'TODO',
-    priority ENUM('LOW', 'MEDIUM', 'HIGH', 'CRITICAL') NOT NULL DEFAULT 'MEDIUM',
-    assignee_email VARCHAR(255),
-    due_date DATETIME,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_status (status),
-    INDEX idx_assignee (assignee_email),
-    INDEX idx_priority (priority),
-    INDEX idx_due_date (due_date)
-);
-
--- Create task_tags table
-CREATE TABLE IF NOT EXISTS task_tags (
-    task_id BIGINT NOT NULL,
-    tag VARCHAR(100) NOT NULL,
-    PRIMARY KEY (task_id, tag),
-    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
-);
-
--- Insert sample data
-INSERT INTO tasks (title, description, status, priority, assignee_email, due_date) VALUES
-('Setup CI/CD Pipeline', 'Implement GitHub Actions with ArgoCD', 'IN_PROGRESS', 'HIGH', 'devops@company.com', '2024-02-01 18:00:00'),
-('Database Migration', 'Migrate from H2 to MySQL', 'TODO', 'MEDIUM', 'backend@company.com', '2024-02-05 12:00:00'),
-('API Documentation', 'Complete Swagger documentation', 'REVIEW', 'LOW', 'api@company.com', '2024-02-03 15:00:00');
-
--- Insert sample tags
-INSERT INTO task_tags (task_id, tag) VALUES
-(1, 'devops'),
-(1, 'automation'),
-(2, 'database'),
-(2, 'migration'),
-(3, 'documentation'),
-(3, 'api');
+### Database Access
+```bash
+# Connect to MySQL
+docker exec -it task-management-mysql mysql -u taskuser -p taskdb
 ```
+
+This configuration provides everything needed for local development and containerized deployment.
 
 ## Build and Run Instructions
 
