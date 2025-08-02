@@ -132,27 +132,113 @@ curl -X PUT http://localhost:8080/api/tasks/1 \
 
 ```
 task-management-api/
-├── 📂 src/                          # Source code
-│   ├── main/java/com/taskapi/       # Application code
-│   ├── main/resources/              # Configuration files
-│   └── test/java/                   # Test code
-├── 📂 k8s/                          # Kubernetes manifests
-│   ├── namespace.yaml               # Namespace definition
-│   ├── deployment.yaml              # Application deployment
-│   ├── service.yaml                 # Service configuration
-│   └── ingress.yaml                 # External access
-├── 📂 terraform/                    # Infrastructure as Code
-│   ├── environments/                # Environment configs
-│   └── modules/                     # Reusable modules
-├── 📂 monitoring/                   # Observability stack
-│   ├── prometheus/                  # Metrics collection
-│   ├── grafana/                     # Dashboards
-│   └── elk-stack/                   # Logging
-├── 📂 .github/workflows/            # CI/CD pipelines
-├── 📂 scripts/                      # Automation scripts
-├── 📄 docker-compose.yml            # Local development
-├── 📄 Dockerfile                    # Container image
-└── 📄 README.md                     # This file
+├── 1-project-overview/
+│   └── README.md
+├── 2-source-code/
+│   ├── src/
+│   │   ├── main/
+│   │   │   ├── java/
+│   │   │   │   └── com/
+│   │   │   │       └── taskapi/
+│   │   │   │           ├── TaskApiApplication.java
+│   │   │   │           ├── controller/
+│   │   │   │           │   └── TaskController.java
+│   │   │   │           ├── model/
+│   │   │   │           │   └── Task.java
+│   │   │   │           ├── repository/
+│   │   │   │           │   └── TaskRepository.java
+│   │   │   │           ├── service/
+│   │   │   │           │   └── TaskService.java
+│   │   │   │           └── config/
+│   │   │   │               └── DatabaseConfig.java
+│   │   │   └── resources/
+│   │   │       ├── application.yml
+│   │   │       └── application-prod.yml
+│   │   └── test/
+│   │       └── java/
+│   │           └── com/
+│   │               └── taskapi/
+│   │                   ├── TaskControllerTest.java
+│   │                   └── TaskServiceTest.java
+│   ├── pom.xml
+│   ├── .gitignore
+│   └── README.md
+├── 3-cloudformation-setup/
+│   ├── 01-vpc-stack.yaml
+│   ├── 02-ec2-stack.yaml
+│   ├── 03-eks-stack.yaml
+│   └── README.md
+├── 4-containerization/
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   ├── .dockerignore
+│   └── README.md
+├── 5-local-build-test/
+│   ├── scripts/
+│   │   ├── build.sh
+│   │   ├── test.sh
+│   │   └── run-local.sh
+│   └── README.md
+├── 6-kubernetes/
+│   ├── namespace.yaml
+│   ├── configmap.yaml
+│   ├── secret.yaml
+│   ├── mysql-deployment.yaml
+│   ├── mysql-service.yaml
+│   ├── task-api-deployment.yaml
+│   ├── task-api-service.yaml
+│   ├── ingress.yaml
+│   ├── hpa.yaml
+│   ├── pdb.yaml
+│   └── README.md
+├── 7-cicd/
+│   ├── github-actions/
+│   │   └── ci-cd-pipeline.yml
+│   ├── jenkins/
+│   │   └── Jenkinsfile
+│   ├── argocd/
+│   │   ├── application.yaml
+│   │   └── config-repo/
+│   │       ├── dev/
+│   │       ├── staging/
+│   │       └── production/
+│   └── README.md
+├── 8-monitoring/
+│   ├── prometheus/
+│   │   ├── prometheus-config.yaml
+│   │   ├── prometheus-deployment.yaml
+│   │   └── prometheus-service.yaml
+│   ├── grafana/
+│   │   ├── grafana-deployment.yaml
+│   │   ├── grafana-service.yaml
+│   │   └── dashboards/
+│   ├── loki/
+│   │   ├── loki-config.yaml
+│   │   └── loki-deployment.yaml
+│   ├── elk-stack/
+│   │   ├── elasticsearch.yaml
+│   │   ├── logstash.yaml
+│   │   └── kibana.yaml
+│   ├── load-testing/
+│   │   ├── locust/
+│   │   │   ├── locustfile.py
+│   │   │   └── locust-deployment.yaml
+│   │   └── k6/
+│   │       └── load-test.js
+│   └── README.md
+├── 9-documentation/
+│   ├── api-documentation.md
+│   ├── deployment-guide.md
+│   ├── troubleshooting.md
+│   └── best-practices.md
+├── .github/
+│   └── workflows/
+│       └── ci-cd.yml
+├── scripts/
+│   ├── setup-environment.sh
+│   ├── deploy-to-k8s.sh
+│   └── cleanup.sh
+└── README.md
 ```
 
 ## 🔄 CI/CD Pipeline
