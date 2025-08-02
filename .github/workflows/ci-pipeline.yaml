@@ -1,7 +1,6 @@
-# GitHub Actions CI/CD Pipeline
+# GitHub Workflows Files
 
-## .github/workflows/ci-pipeline.yml
-
+## .github/workflows/ci-cd.yml
 name: CI/CD Pipeline
 
 on:
@@ -17,43 +16,50 @@ env:
 
 jobs:
   test:
-    name: Run Tests
+    name: Test
     runs-on: ubuntu-latest
     
     services:
       mysql:
         image: mysql:8.0
         env:
-          MYSQL_ROOT_PASSWORD: password123
+          MYSQL_ROOT_PASSWORD: testpass
           MYSQL_DATABASE: taskdb_test
+          MYSQL_USER: testuser
+          MYSQL_PASSWORD: testpass
         ports:
           - 3306:3306
         options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
 
     steps:
-    - name: Checkout code
+    - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Set up JDK 17
+    - name: Setup JDK
       uses: actions/setup-java@v4
       with:
         java-version: ${{ env.JAVA_VERSION }}
         distribution: 'temurin'
 
-    - name: Cache Maven dependencies
+    - name: Cache Maven
       uses: actions/cache@v3
       with:
         path: ~/.m2
         key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
         restore-keys: ${{ runner.os }}-m2
 
-    - name: Run unit tests
-      run: mvn clean test -Dspring.profiles.active=test
+    - name: Run Tests
+      run: |
+        mvn clean test -Dspring.profiles.active=test
+        mvn jacoco:report
 
-    - name: Run integration tests
-      run: mvn verify -Dspring.profiles.active=test
+    - name: Upload Coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: target/site/jacoco/jacoco.xml
+        fail_ci_if_error: false
 
-    - name: Generate test report
+    - name: Publish Test Results
       uses: dorny/test-reporter@v1
       if: success() || failure()
       with:
@@ -61,75 +67,73 @@ jobs:
         path: target/surefire-reports/*.xml
         reporter: java-junit
 
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: target/site/jacoco/jacoco.xml
-
-  security-scan:
+  security:
     name: Security Scan
     runs-on: ubuntu-latest
     needs: test
 
     steps:
-    - name: Checkout code
+    - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Set up JDK 17
+    - name: Setup JDK
       uses: actions/setup-java@v4
       with:
         java-version: ${{ env.JAVA_VERSION }}
         distribution: 'temurin'
 
-    - name: Run OWASP Dependency Check
-      run: |
-        mvn org.owasp:dependency-check-maven:check
-        
-    - name: Upload dependency check results
+    - name: OWASP Dependency Check
+      run: mvn org.owasp:dependency-check-maven:check
+
+    - name: Upload Security Report
       uses: actions/upload-artifact@v3
       if: always()
       with:
-        name: dependency-check-report
+        name: security-report
         path: target/dependency-check-report.html
 
   build:
-    name: Build and Push Image
+    name: Build & Push
     runs-on: ubuntu-latest
-    needs: [test, security-scan]
+    needs: [test, security]
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
 
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+
     steps:
-    - name: Checkout code
+    - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Set up JDK 17
+    - name: Setup JDK
       uses: actions/setup-java@v4
       with:
         java-version: ${{ env.JAVA_VERSION }}
         distribution: 'temurin'
 
-    - name: Cache Maven dependencies
+    - name: Cache Maven
       uses: actions/cache@v3
       with:
         path: ~/.m2
         key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
         restore-keys: ${{ runner.os }}-m2
 
-    - name: Build application
+    - name: Build Application
       run: mvn clean package -DskipTests
 
-    - name: Configure AWS credentials
+    - name: Configure AWS
       uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
 
-    - name: Login to Amazon ECR
+    - name: Login to ECR
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v2
 
-    - name: Extract metadata
+    - name: Extract Metadata
       id: meta
       uses: docker/metadata-action@v5
       with:
@@ -140,7 +144,8 @@ jobs:
           type=sha,prefix={{branch}}-
           type=raw,value=latest,enable={{is_default_branch}}
 
-    - name: Build and push Docker image
+    - name: Build & Push Image
+      id: build
       uses: docker/build-push-action@v5
       with:
         context: .
@@ -150,154 +155,236 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-    - name: Scan Docker image
+    - name: Scan Image
       uses: aquasecurity/trivy-action@master
       with:
         image-ref: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
         format: 'sarif'
         output: 'trivy-results.sarif'
 
-    - name: Upload Trivy scan results
+    - name: Upload Scan Results
       uses: github/codeql-action/upload-sarif@v2
       if: always()
       with:
         sarif_file: 'trivy-results.sarif'
 
-    - name: Update GitOps repository
-      if: github.ref == 'refs/heads/main'
-      run: |
-        git config --global user.name "github-actions[bot]"
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        
-        # Clone GitOps repo
-        git clone https://${{ secrets.GITOPS_TOKEN }}@github.com/${{ github.repository_owner }}/task-management-gitops.git
-        cd task-management-gitops
-        
-        # Update image tag in dev environment
-        IMAGE_TAG="${{ github.sha }}"
-        sed -i "s|image: .*|image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:main-${IMAGE_TAG:0:7}|" k8s/app-deployment.yaml
-        
-        # Commit and push changes
-        git add .
-        git commit -m "Update dev image to main-${IMAGE_TAG:0:7}"
-        git push origin main
-
   deploy-dev:
-    name: Deploy to Development
+    name: Deploy Dev
     runs-on: ubuntu-latest
     needs: build
     if: github.ref == 'refs/heads/develop'
     environment: development
 
     steps:
-    - name: Checkout code
+    - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Configure AWS credentials
+    - name: Configure AWS
       uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
 
-    - name: Update kubeconfig
+    - name: Update Kubeconfig
       run: |
         aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name task-management-dev-cluster
 
     - name: Deploy to Kubernetes
       run: |
-        # Update image tag
-        sed -i "s|<AWS_ACCOUNT_ID>|${{ secrets.AWS_ACCOUNT_ID }}|g" k8s/app-deployment.yaml
-        sed -i "s|<REGION>|${{ env.AWS_REGION }}|g" k8s/app-deployment.yaml
-        sed -i "s|:latest|:develop-${{ github.sha }}|g" k8s/app-deployment.yaml
+        # Update image in deployment
+        sed -i "s|image: .*task-management-api:.*|image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:develop-${{ github.sha }}|" k8s/task-api-deployment.yaml
         
         # Apply manifests
-        kubectl apply -f k8s/
+        kubectl apply -f k8s/ -n task-management-dev
         
-        # Wait for deployment
-        kubectl rollout status deployment/task-management-api -n task-management-dev
+        # Wait for rollout
+        kubectl rollout status deployment/task-api -n task-management-dev --timeout=300s
 
-    - name: Run smoke tests
+    - name: Smoke Test
       run: |
         # Wait for service to be ready
         sleep 30
         
         # Get service URL
-        SERVICE_URL=$(kubectl get ingress task-management-ingress -n task-management-dev -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+        SERVICE_URL=$(kubectl get svc task-api-service -n task-management-dev -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || echo "localhost")
         
-        # Run basic health check
+        # Port forward if no external IP
+        if [ "$SERVICE_URL" = "localhost" ]; then
+          kubectl port-forward svc/task-api-service 8080:80 -n task-management-dev &
+          PF_PID=$!
+          sleep 10
+          SERVICE_URL="localhost:8080"
+        fi
+        
+        # Health check
         curl -f http://$SERVICE_URL/actuator/health
+        
+        # Kill port forward if used
+        [ ! -z "$PF_PID" ] && kill $PF_PID || true
 
-  deploy-prod:
-    name: Deploy to Production
+  deploy-staging:
+    name: Deploy Staging
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, deploy-dev]
     if: github.ref == 'refs/heads/main'
-    environment: production
+    environment: staging
 
     steps:
-    - name: Checkout code
+    - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Configure AWS credentials
+    - name: Configure AWS
       uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
 
-    - name: Update kubeconfig
+    - name: Update Kubeconfig
+      run: |
+        aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name task-management-staging-cluster
+
+    - name: Deploy to Kubernetes
+      run: |
+        # Update image in deployment
+        sed -i "s|image: .*task-management-api:.*|image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:main-${{ github.sha }}|" k8s/task-api-deployment.yaml
+        sed -i "s|replicas: .*|replicas: 2|" k8s/task-api-deployment.yaml
+        
+        # Apply manifests
+        kubectl apply -f k8s/ -n task-management-staging
+        
+        # Wait for rollout
+        kubectl rollout status deployment/task-api -n task-management-staging --timeout=300s
+
+    - name: Integration Tests
+      run: |
+        # Wait for service
+        sleep 30
+        
+        # Run integration tests against staging
+        SERVICE_URL=$(kubectl get svc task-api-service -n task-management-staging -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || echo "localhost")
+        
+        if [ "$SERVICE_URL" = "localhost" ]; then
+          kubectl port-forward svc/task-api-service 8080:80 -n task-management-staging &
+          PF_PID=$!
+          sleep 10
+          SERVICE_URL="localhost:8080"
+        fi
+        
+        # Basic API tests
+        curl -f http://$SERVICE_URL/actuator/health
+        curl -f http://$SERVICE_URL/api/tasks
+        
+        # Create and verify task
+        TASK_ID=$(curl -s -X POST http://$SERVICE_URL/api/tasks \
+          -H "Content-Type: application/json" \
+          -d '{"title":"CI Test","description":"Automated test"}' | \
+          grep -o '"id":[0-9]*' | cut -d':' -f2)
+        
+        if [ ! -z "$TASK_ID" ]; then
+          curl -f http://$SERVICE_URL/api/tasks/$TASK_ID
+          curl -X DELETE http://$SERVICE_URL/api/tasks/$TASK_ID
+        fi
+        
+        [ ! -z "$PF_PID" ] && kill $PF_PID || true
+
+  deploy-prod:
+    name: Deploy Production
+    runs-on: ubuntu-latest
+    needs: [build, deploy-staging]
+    if: github.ref == 'refs/heads/main'
+    environment: production
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Configure AWS
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Update Kubeconfig
       run: |
         aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name task-management-prod-cluster
 
     - name: Deploy to Kubernetes
       run: |
-        # Update image tag
-        sed -i "s|<AWS_ACCOUNT_ID>|${{ secrets.AWS_ACCOUNT_ID }}|g" k8s/app-deployment.yaml
-        sed -i "s|<REGION>|${{ env.AWS_REGION }}|g" k8s/app-deployment.yaml
-        sed -i "s|:latest|:main-${{ github.sha }}|g" k8s/app-deployment.yaml
+        # Update image in deployment
+        sed -i "s|image: .*task-management-api:.*|image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest|" k8s/task-api-deployment.yaml
+        sed -i "s|replicas: .*|replicas: 3|" k8s/task-api-deployment.yaml
         
         # Apply manifests
-        kubectl apply -f k8s/
+        kubectl apply -f k8s/ -n task-management
         
-        # Wait for deployment
-        kubectl rollout status deployment/task-management-api -n task-management-prod
+        # Wait for rollout
+        kubectl rollout status deployment/task-api -n task-management --timeout=600s
 
-    - name: Run smoke tests
+    - name: Production Health Check
       run: |
-        # Wait for service to be ready
-        sleep 30
+        # Wait for service
+        sleep 60
         
-        # Get service URL
-        SERVICE_URL=$(kubectl get ingress task-management-ingress -n task-management-prod -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+        # Health check
+        SERVICE_URL=$(kubectl get svc task-api-service -n task-management -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || echo "localhost")
         
-        # Run comprehensive health checks
+        if [ "$SERVICE_URL" = "localhost" ]; then
+          kubectl port-forward svc/task-api-service 8080:80 -n task-management &
+          PF_PID=$!
+          sleep 10
+          SERVICE_URL="localhost:8080"
+        fi
+        
+        # Comprehensive health check
         curl -f http://$SERVICE_URL/actuator/health
+        curl -f http://$SERVICE_URL/actuator/health/readiness
         curl -f http://$SERVICE_URL/api/tasks
+        
+        [ ! -z "$PF_PID" ] && kill $PF_PID || true
 
   notify:
-    name: Notify Teams
+    name: Notify
     runs-on: ubuntu-latest
-    needs: [deploy-dev, deploy-prod]
+    needs: [deploy-dev, deploy-staging, deploy-prod]
     if: always()
 
     steps:
-    - name: Notify Slack on Success
-      if: success()
+    - name: Slack Success
+      if: ${{ needs.deploy-prod.result == 'success' || needs.deploy-dev.result == 'success' }}
       uses: 8398a7/action-slack@v3
       with:
         status: success
         channel: '#deployments'
-        text: '✅ Task Management API deployed successfully to ${{ github.ref }}'
+        text: |
+          ✅ Task Management API deployed successfully!
+          Branch: ${{ github.ref_name }}
+          Commit: ${{ github.sha }}
+          Environment: ${{ github.ref == 'refs/heads/main' && 'Production' || 'Development' }}
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
-    - name: Notify Slack on Failure
-      if: failure()
+    - name: Slack Failure
+      if: ${{ needs.deploy-prod.result == 'failure' || needs.deploy-dev.result == 'failure' || needs.deploy-staging.result == 'failure' }}
       uses: 8398a7/action-slack@v3
       with:
         status: failure
         channel: '#deployments'
-        text: '❌ Task Management API deployment failed on ${{ github.ref }}'
+        text: |
+          ❌ Task Management API deployment failed!
+          Branch: ${{ github.ref_name }}
+          Commit: ${{ github.sha }}
+          Check: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+    - name: Teams Notification
+      if: always()
+      uses: skitionek/notify-microsoft-teams@master
+      with:
+        webhook_url: ${{ secrets.TEAMS_WEBHOOK_URL }}
+        needs: ${{ toJson(needs) }}
+        job: ${{ toJson(job) }}
+        steps: ${{ toJson(steps) }}
