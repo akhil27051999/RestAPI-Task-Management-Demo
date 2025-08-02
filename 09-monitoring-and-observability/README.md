@@ -1,108 +1,34 @@
-# Section 9: Monitoring & Observability
+# 8-Monitoring Files
 
-## Overview
-Complete monitoring and observability stack using Prometheus, Grafana, ELK Stack, and AWS CloudWatch for comprehensive application and infrastructure monitoring.
-
-## Directory Structure
-```
-9-monitoring-observability/
-├── prometheus/
-│   ├── helm-values/
-│   │   ├── prometheus-values.yaml
-│   │   └── alertmanager-values.yaml
-│   ├── rules/
-│   │   ├── application-rules.yaml
-│   │   ├── infrastructure-rules.yaml
-│   │   └── kubernetes-rules.yaml
-│   └── targets/
-│       └── service-monitors.yaml
-├── grafana/
-│   ├── helm-values/
-│   │   └── grafana-values.yaml
-│   ├── dashboards/
-│   │   ├── application-dashboard.json
-│   │   ├── infrastructure-dashboard.json
-│   │   ├── kubernetes-dashboard.json
-│   │   └── business-metrics-dashboard.json
-│   └── datasources/
-│       └── datasources.yaml
-├── elk-stack/
-│   ├── elasticsearch/
-│   │   ├── elasticsearch-values.yaml
-│   │   └── index-templates/
-│   │       └── application-logs.json
-│   ├── logstash/
-│   │   ├── logstash-values.yaml
-│   │   └── pipelines/
-│   │       ├── application-pipeline.conf
-│   │       └── kubernetes-pipeline.conf
-│   ├── kibana/
-│   │   ├── kibana-values.yaml
-│   │   └── dashboards/
-│   │       ├── application-logs-dashboard.json
-│   │       └── error-analysis-dashboard.json
-│   └── filebeat/
-│       ├── filebeat-values.yaml
-│       └── config/
-│           └── filebeat.yml
-├── jaeger/
-│   ├── jaeger-values.yaml
-│   └── config/
-│       └── jaeger-config.yaml
-├── cloudwatch/
-│   ├── log-groups.yaml
-│   ├── custom-metrics.yaml
-│   └── alarms/
-│       ├── application-alarms.yaml
-│       ├── infrastructure-alarms.yaml
-│       └── cost-alarms.yaml
-├── alerts/
-│   ├── slack-webhook.yaml
-│   ├── pagerduty-config.yaml
-│   └── email-notifications.yaml
-└── scripts/
-    ├── deploy-monitoring.sh
-    ├── setup-dashboards.sh
-    ├── test-alerts.sh
-    └── backup-configs.sh
-```
-
-## Prometheus Configuration
-
-### Prometheus Helm Values
+## prometheus/prometheus-config.yaml
 ```yaml
-# prometheus/helm-values/prometheus-values.yaml
-prometheus:
-  prometheusSpec:
-    retention: 30d
-    retentionSize: 50GB
-    
-    storageSpec:
-      volumeClaimTemplate:
-        spec:
-          storageClassName: gp3
-          accessModes: ["ReadWriteOnce"]
-          resources:
-            requests:
-              storage: 100Gi
-    
-    resources:
-      requests:
-        memory: 2Gi
-        cpu: 1000m
-      limits:
-        memory: 4Gi
-        cpu: 2000m
-    
-    additionalScrapeConfigs:
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    rule_files:
+      - "alert_rules.yml"
+
+    scrape_configs:
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+
       - job_name: 'task-management-api'
         kubernetes_sd_configs:
           - role: endpoints
             namespaces:
               names:
+                - task-management
                 - task-management-dev
                 - task-management-staging
-                - task-management-prod
         relabel_configs:
           - source_labels: [__meta_kubernetes_service_name]
             action: keep
@@ -110,337 +36,319 @@ prometheus:
           - source_labels: [__meta_kubernetes_endpoint_port_name]
             action: keep
             regex: http
-        metrics_path: /actuator/prometheus
+        metrics_path: '/actuator/prometheus'
         scrape_interval: 30s
-    
-    ruleSelector:
-      matchLabels:
-        app: kube-prometheus-stack
-        release: prometheus
 
-alertmanager:
-  alertmanagerSpec:
-    storage:
-      volumeClaimTemplate:
-        spec:
-          storageClassName: gp3
-          accessModes: ["ReadWriteOnce"]
-          resources:
-            requests:
-              storage: 10Gi
-    
-    resources:
-      requests:
-        memory: 256Mi
-        cpu: 100m
-      limits:
-        memory: 512Mi
-        cpu: 200m
+      - job_name: 'kubernetes-nodes'
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
 
-grafana:
-  enabled: true
-  adminPassword: "admin123"
-  
-  persistence:
-    enabled: true
-    storageClassName: gp3
-    size: 10Gi
-  
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+
+  alert_rules.yml: |
+    groups:
+      - name: task-management-alerts
+        rules:
+          - alert: HighErrorRate
+            expr: rate(http_server_requests_seconds_count{status=~"5.."}[5m]) / rate(http_server_requests_seconds_count[5m]) > 0.05
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High error rate detected"
+              description: "Error rate is above 5% for {{ $labels.instance }}"
+
+          - alert: HighResponseTime
+            expr: histogram_quantile(0.95, rate(http_server_requests_seconds_bucket[5m])) > 2
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High response time"
+              description: "95th percentile response time is {{ $value }}s"
+
+          - alert: ApplicationDown
+            expr: up{job="task-management-api"} == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Application is down"
+              description: "Task Management API is not responding"
+```
+
+## prometheus/prometheus-deployment.yaml
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+      - name: prometheus
+        image: prom/prometheus:latest
+        ports:
+        - containerPort: 9090
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/prometheus
+        - name: storage-volume
+          mountPath: /prometheus
+        args:
+          - '--config.file=/etc/prometheus/prometheus.yml'
+          - '--storage.tsdb.path=/prometheus'
+          - '--web.console.libraries=/etc/prometheus/console_libraries'
+          - '--web.console.templates=/etc/prometheus/consoles'
+          - '--storage.tsdb.retention.time=200h'
+          - '--web.enable-lifecycle'
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+      volumes:
+      - name: config-volume
+        configMap:
+          name: prometheus-config
+      - name: storage-volume
+        persistentVolumeClaim:
+          claimName: prometheus-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-pvc
+  namespace: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
   resources:
     requests:
-      memory: 256Mi
-      cpu: 100m
-    limits:
-      memory: 512Mi
-      cpu: 200m
-  
-  ingress:
-    enabled: true
-    ingressClassName: nginx
-    hosts:
-      - grafana.taskmanagement.local
-    tls:
-      - secretName: grafana-tls
-        hosts:
-          - grafana.taskmanagement.local
-
-kubeStateMetrics:
-  enabled: true
-
-nodeExporter:
-  enabled: true
-
-prometheusOperator:
-  enabled: true
+      storage: 50Gi
+  storageClassName: gp2
 ```
 
-### Application Monitoring Rules
+## prometheus/prometheus-service.yaml
 ```yaml
-# prometheus/rules/application-rules.yaml
-apiVersion: monitoring.coreos.com/v1
-kind: PrometheusRule
+apiVersion: v1
+kind: Service
 metadata:
-  name: task-management-application-rules
+  name: prometheus-service
   namespace: monitoring
   labels:
-    app: kube-prometheus-stack
-    release: prometheus
-spec:
-  groups:
-  - name: task-management.application
-    rules:
-    - alert: HighErrorRate
-      expr: |
-        (
-          rate(http_server_requests_seconds_count{status=~"5.."}[5m]) /
-          rate(http_server_requests_seconds_count[5m])
-        ) * 100 > 5
-      for: 5m
-      labels:
-        severity: warning
-        service: task-management-api
-      annotations:
-        summary: "High error rate detected"
-        description: "Error rate is {{ $value }}% for {{ $labels.instance }}"
-    
-    - alert: HighResponseTime
-      expr: |
-        histogram_quantile(0.95, 
-          rate(http_server_requests_seconds_bucket[5m])
-        ) > 2
-      for: 5m
-      labels:
-        severity: warning
-        service: task-management-api
-      annotations:
-        summary: "High response time detected"
-        description: "95th percentile response time is {{ $value }}s for {{ $labels.instance }}"
-    
-    - alert: DatabaseConnectionPoolExhausted
-      expr: |
-        hikaricp_connections_active / hikaricp_connections_max > 0.8
-      for: 2m
-      labels:
-        severity: critical
-        service: task-management-api
-      annotations:
-        summary: "Database connection pool nearly exhausted"
-        description: "Connection pool usage is {{ $value | humanizePercentage }} for {{ $labels.instance }}"
-    
-    - alert: HighMemoryUsage
-      expr: |
-        (jvm_memory_used_bytes{area="heap"} / jvm_memory_max_bytes{area="heap"}) * 100 > 85
-      for: 5m
-      labels:
-        severity: warning
-        service: task-management-api
-      annotations:
-        summary: "High JVM heap memory usage"
-        description: "JVM heap usage is {{ $value }}% for {{ $labels.instance }}"
-    
-    - alert: ApplicationDown
-      expr: |
-        up{job="task-management-api"} == 0
-      for: 1m
-      labels:
-        severity: critical
-        service: task-management-api
-      annotations:
-        summary: "Application is down"
-        description: "Task Management API instance {{ $labels.instance }} is down"
-```
-
-### Infrastructure Monitoring Rules
-```yaml
-# prometheus/rules/infrastructure-rules.yaml
-apiVersion: monitoring.coreos.com/v1
-kind: PrometheusRule
-metadata:
-  name: infrastructure-rules
-  namespace: monitoring
-  labels:
-    app: kube-prometheus-stack
-    release: prometheus
-spec:
-  groups:
-  - name: infrastructure.nodes
-    rules:
-    - alert: NodeHighCPUUsage
-      expr: |
-        (1 - rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100 > 80
-      for: 5m
-      labels:
-        severity: warning
-      annotations:
-        summary: "High CPU usage on node"
-        description: "CPU usage is {{ $value }}% on {{ $labels.instance }}"
-    
-    - alert: NodeHighMemoryUsage
-      expr: |
-        (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
-      for: 5m
-      labels:
-        severity: warning
-      annotations:
-        summary: "High memory usage on node"
-        description: "Memory usage is {{ $value }}% on {{ $labels.instance }}"
-    
-    - alert: NodeDiskSpaceLow
-      expr: |
-        (1 - (node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"})) * 100 > 85
-      for: 5m
-      labels:
-        severity: warning
-      annotations:
-        summary: "Low disk space on node"
-        description: "Disk usage is {{ $value }}% on {{ $labels.instance }} mount {{ $labels.mountpoint }}"
-    
-    - alert: PodCrashLooping
-      expr: |
-        rate(kube_pod_container_status_restarts_total[15m]) > 0
-      for: 5m
-      labels:
-        severity: warning
-      annotations:
-        summary: "Pod is crash looping"
-        description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash looping"
-```
-
-### Service Monitors
-```yaml
-# prometheus/targets/service-monitors.yaml
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: task-management-api
-  namespace: monitoring
-  labels:
-    app: task-management-api
+    app: prometheus
 spec:
   selector:
-    matchLabels:
-      app: task-management-api
-  namespaceSelector:
-    matchNames:
-      - task-management-dev
-      - task-management-staging
-      - task-management-prod
-  endpoints:
-  - port: http
-    path: /actuator/prometheus
-    interval: 30s
-    scrapeTimeout: 10s
+    app: prometheus
+  ports:
+  - name: web
+    port: 9090
+    targetPort: 9090
+  type: ClusterIP
 ---
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
+apiVersion: networking.k8s.io/v1
+kind: Ingress
 metadata:
-  name: mysql-exporter
+  name: prometheus-ingress
   namespace: monitoring
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: prometheus-auth
 spec:
-  selector:
-    matchLabels:
-      app: mysql-exporter
-  endpoints:
-  - port: metrics
-    interval: 30s
+  rules:
+  - host: prometheus.taskmanagement.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: prometheus-service
+            port:
+              number: 9090
 ```
 
-## Grafana Configuration
-
-### Grafana Helm Values
+## grafana/grafana-deployment.yaml
 ```yaml
-# grafana/helm-values/grafana-values.yaml
-adminUser: admin
-adminPassword: admin123
-
-persistence:
-  enabled: true
-  storageClassName: gp3
-  size: 10Gi
-
-resources:
-  requests:
-    memory: 256Mi
-    cpu: 100m
-  limits:
-    memory: 512Mi
-    cpu: 200m
-
-ingress:
-  enabled: true
-  ingressClassName: nginx
-  hosts:
-    - grafana.taskmanagement.local
-  tls:
-    - secretName: grafana-tls
-      hosts:
-        - grafana.taskmanagement.local
-
-datasources:
-  datasources.yaml:
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: GF_SECURITY_ADMIN_USER
+          value: "admin"
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: grafana-secret
+              key: admin-password
+        - name: GF_USERS_ALLOW_SIGN_UP
+          value: "false"
+        volumeMounts:
+        - name: grafana-storage
+          mountPath: /var/lib/grafana
+        - name: grafana-datasources
+          mountPath: /etc/grafana/provisioning/datasources
+        - name: grafana-dashboards-config
+          mountPath: /etc/grafana/provisioning/dashboards
+        - name: grafana-dashboards
+          mountPath: /var/lib/grafana/dashboards
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "200m"
+      volumes:
+      - name: grafana-storage
+        persistentVolumeClaim:
+          claimName: grafana-pvc
+      - name: grafana-datasources
+        configMap:
+          name: grafana-datasources
+      - name: grafana-dashboards-config
+        configMap:
+          name: grafana-dashboards-config
+      - name: grafana-dashboards
+        configMap:
+          name: grafana-dashboards
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc
+  namespace: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: gp2
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-secret
+  namespace: monitoring
+type: Opaque
+data:
+  admin-password: YWRtaW4xMjM=  # admin123
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: monitoring
+data:
+  datasources.yaml: |
     apiVersion: 1
     datasources:
     - name: Prometheus
       type: prometheus
-      url: http://prometheus-server:80
+      url: http://prometheus-service:9090
       access: proxy
       isDefault: true
-    - name: Elasticsearch
-      type: elasticsearch
-      url: http://elasticsearch:9200
+    - name: Loki
+      type: loki
+      url: http://loki-service:3100
       access: proxy
-      database: "logstash-*"
-      timeField: "@timestamp"
-    - name: Jaeger
-      type: jaeger
-      url: http://jaeger-query:16686
-      access: proxy
-
-dashboardProviders:
-  dashboardproviders.yaml:
-    apiVersion: 1
-    providers:
-    - name: 'default'
-      orgId: 1
-      folder: ''
-      type: file
-      disableDeletion: false
-      editable: true
-      options:
-        path: /var/lib/grafana/dashboards/default
-
-dashboards:
-  default:
-    application-metrics:
-      gnetId: 12900
-      revision: 1
-      datasource: Prometheus
-    kubernetes-cluster:
-      gnetId: 7249
-      revision: 1
-      datasource: Prometheus
-    jvm-metrics:
-      gnetId: 4701
-      revision: 6
-      datasource: Prometheus
-
-plugins:
-  - grafana-piechart-panel
-  - grafana-worldmap-panel
-  - grafana-clock-panel
-
-env:
-  GF_FEATURE_TOGGLES_ENABLE: "tempoSearch,tempoBackendSearch"
-  GF_INSTALL_PLUGINS: "grafana-piechart-panel,grafana-worldmap-panel"
 ```
 
-### Application Dashboard
+## grafana/grafana-service.yaml
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-service
+  namespace: monitoring
+  labels:
+    app: grafana
+spec:
+  selector:
+    app: grafana
+  ports:
+  - name: web
+    port: 3000
+    targetPort: 3000
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana-ingress
+  namespace: monitoring
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  rules:
+  - host: grafana.taskmanagement.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana-service
+            port:
+              number: 3000
+```
+
+## grafana/dashboards/application-dashboard.json
 ```json
 {
   "dashboard": {
     "id": null,
-    "title": "Task Management API - Application Metrics",
-    "tags": ["task-management", "application"],
+    "title": "Task Management API Dashboard",
+    "tags": ["task-management", "spring-boot"],
     "timezone": "browser",
     "panels": [
       {
@@ -455,7 +363,8 @@ env:
         ],
         "fieldConfig": {
           "defaults": {
-            "unit": "reqps"
+            "unit": "reqps",
+            "color": {"mode": "palette-classic"}
           }
         },
         "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0}
@@ -495,26 +404,12 @@ env:
           }
         ],
         "fieldConfig": {
-          "defaults": {
-            "unit": "s"
-          }
+          "defaults": {"unit": "s"}
         },
         "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0}
       },
       {
         "id": 4,
-        "title": "Active Database Connections",
-        "type": "stat",
-        "targets": [
-          {
-            "expr": "sum(hikaricp_connections_active{job=\"task-management-api\"})",
-            "legendFormat": "Active Connections"
-          }
-        ],
-        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0}
-      },
-      {
-        "id": 5,
         "title": "JVM Memory Usage",
         "type": "timeseries",
         "targets": [
@@ -528,101 +423,224 @@ env:
           }
         ],
         "fieldConfig": {
-          "defaults": {
-            "unit": "bytes"
-          }
+          "defaults": {"unit": "bytes"}
         },
         "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
-      },
-      {
-        "id": 6,
-        "title": "HTTP Request Duration",
-        "type": "heatmap",
-        "targets": [
-          {
-            "expr": "sum(rate(http_server_requests_seconds_bucket{job=\"task-management-api\"}[5m])) by (le)",
-            "format": "heatmap",
-            "legendFormat": "{{le}}"
-          }
-        ],
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
       }
     ],
-    "time": {
-      "from": "now-1h",
-      "to": "now"
-    },
+    "time": {"from": "now-1h", "to": "now"},
     "refresh": "30s"
   }
 }
 ```
 
-## ELK Stack Configuration
-
-### Elasticsearch Values
+## loki/loki-config.yaml
 ```yaml
-# elk-stack/elasticsearch/elasticsearch-values.yaml
-clusterName: "task-management-logs"
-nodeGroup: "master"
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-config
+  namespace: monitoring
+data:
+  loki.yaml: |
+    auth_enabled: false
 
-roles:
-  master: "true"
-  ingest: "true"
-  data: "true"
+    server:
+      http_listen_port: 3100
 
-replicas: 3
-minimumMasterNodes: 2
+    ingester:
+      lifecycler:
+        address: 127.0.0.1
+        ring:
+          kvstore:
+            store: inmemory
+          replication_factor: 1
+        final_sleep: 0s
+      chunk_idle_period: 5m
+      chunk_retain_period: 30s
 
-esMajorVersion: ""
+    schema_config:
+      configs:
+        - from: 2020-10-24
+          store: boltdb
+          object_store: filesystem
+          schema: v11
+          index:
+            prefix: index_
+            period: 168h
 
-esConfig:
-  elasticsearch.yml: |
-    cluster.name: task-management-logs
-    network.host: 0.0.0.0
-    discovery.seed_hosts: "elasticsearch-master-headless"
-    cluster.initial_master_nodes: "elasticsearch-master-0,elasticsearch-master-1,elasticsearch-master-2"
-    xpack.security.enabled: false
-    xpack.monitoring.collection.enabled: true
+    storage_config:
+      boltdb:
+        directory: /loki/index
+      filesystem:
+        directory: /loki/chunks
 
-volumeClaimTemplate:
-  accessModes: ["ReadWriteOnce"]
-  storageClassName: gp3
-  resources:
-    requests:
-      storage: 100Gi
+    limits_config:
+      enforce_metric_name: false
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
 
-resources:
-  requests:
-    cpu: "1000m"
-    memory: "2Gi"
-  limits:
-    cpu: "2000m"
-    memory: "4Gi"
+    chunk_store_config:
+      max_look_back_period: 0s
 
-esJavaOpts: "-Xmx2g -Xms2g"
-
-service:
-  type: ClusterIP
-  ports:
-    - name: http
-      port: 9200
-      protocol: TCP
-    - name: transport
-      port: 9300
-      protocol: TCP
+    table_manager:
+      retention_deletes_enabled: false
+      retention_period: 0s
 ```
 
-### Logstash Configuration
+## loki/loki-deployment.yaml
 ```yaml
-# elk-stack/logstash/logstash-values.yaml
-replicas: 2
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: monitoring
+  labels:
+    app: loki
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loki
+  template:
+    metadata:
+      labels:
+        app: loki
+    spec:
+      containers:
+      - name: loki
+        image: grafana/loki:latest
+        ports:
+        - containerPort: 3100
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/loki
+        - name: storage-volume
+          mountPath: /loki
+        args:
+          - -config.file=/etc/loki/loki.yaml
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "200m"
+      volumes:
+      - name: config-volume
+        configMap:
+          name: loki-config
+      - name: storage-volume
+        persistentVolumeClaim:
+          claimName: loki-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: loki-pvc
+  namespace: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: gp2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki-service
+  namespace: monitoring
+  labels:
+    app: loki
+spec:
+  selector:
+    app: loki
+  ports:
+  - name: http
+    port: 3100
+    targetPort: 3100
+  type: ClusterIP
+```
 
-logstashConfig:
-  logstash.yml: |
-    http.host: "0.0.0.0"
-    xpack.monitoring.elasticsearch.hosts: ["http://elasticsearch:9200"]
+## elk-stack/elasticsearch.yaml
+```yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch
+  namespace: monitoring
+spec:
+  serviceName: elasticsearch
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+    spec:
+      containers:
+      - name: elasticsearch
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.8.0
+        ports:
+        - containerPort: 9200
+        - containerPort: 9300
+        env:
+        - name: discovery.type
+          value: single-node
+        - name: ES_JAVA_OPTS
+          value: "-Xms512m -Xmx512m"
+        - name: xpack.security.enabled
+          value: "false"
+        volumeMounts:
+        - name: elasticsearch-data
+          mountPath: /usr/share/elasticsearch/data
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+  volumeClaimTemplates:
+  - metadata:
+      name: elasticsearch-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: gp2
+      resources:
+        requests:
+          storage: 50Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch
+  namespace: monitoring
+spec:
+  selector:
+    app: elasticsearch
+  ports:
+  - name: http
+    port: 9200
+    targetPort: 9200
+  - name: transport
+    port: 9300
+    targetPort: 9300
+  type: ClusterIP
+```
 
-logstashPipeline:
+## elk-stack/logstash.yaml
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-config
+  namespace: monitoring
+data:
   logstash.conf: |
     input {
       beats {
@@ -647,12 +665,6 @@ logstashPipeline:
           }
         }
       }
-      
-      if [kubernetes][namespace] {
-        mutate {
-          add_field => { "environment" => "%{[kubernetes][namespace]}" }
-        }
-      }
     }
     
     output {
@@ -661,623 +673,666 @@ logstashPipeline:
         index => "logstash-application-%{+YYYY.MM.dd}"
       }
     }
-
-resources:
-  requests:
-    cpu: "500m"
-    memory: "1Gi"
-  limits:
-    cpu: "1000m"
-    memory: "2Gi"
-
-service:
-  type: ClusterIP
-  ports:
-    - name: beats
-      port: 5044
-      protocol: TCP
-```
-
-### Kibana Configuration
-```yaml
-# elk-stack/kibana/kibana-values.yaml
-elasticsearchHosts: "http://elasticsearch:9200"
-
-replicas: 1
-
-resources:
-  requests:
-    cpu: "500m"
-    memory: "1Gi"
-  limits:
-    cpu: "1000m"
-    memory: "2Gi"
-
-kibanaConfig:
-  kibana.yml: |
-    server.host: "0.0.0.0"
-    elasticsearch.hosts: ["http://elasticsearch:9200"]
-    xpack.monitoring.ui.container.elasticsearch.enabled: true
-
-service:
-  type: ClusterIP
-  port: 5601
-
-ingress:
-  enabled: true
-  className: nginx
-  hosts:
-    - host: kibana.taskmanagement.local
-      paths:
-        - path: /
-          pathType: Prefix
-  tls:
-    - secretName: kibana-tls
-      hosts:
-        - kibana.taskmanagement.local
-```
-
-### Filebeat Configuration
-```yaml
-# elk-stack/filebeat/filebeat-values.yaml
-daemonset:
-  enabled: true
-
-deployment:
-  enabled: false
-
-filebeatConfig:
-  filebeat.yml: |
-    filebeat.inputs:
-    - type: container
-      paths:
-        - /var/log/containers/*task-management*.log
-      processors:
-        - add_kubernetes_metadata:
-            host: ${NODE_NAME}
-            matchers:
-            - logs_path:
-                logs_path: "/var/log/containers/"
-    
-    output.logstash:
-      hosts: ["logstash:5044"]
-    
-    processors:
-      - add_host_metadata:
-          when.not.contains.tags: forwarded
-      - add_cloud_metadata: ~
-      - add_docker_metadata: ~
-      - add_kubernetes_metadata: ~
-
-resources:
-  requests:
-    cpu: "100m"
-    memory: "100Mi"
-  limits:
-    cpu: "200m"
-    memory: "200Mi"
-
-extraVolumes:
-  - name: varlibdockercontainers
-    hostPath:
-      path: /var/lib/docker/containers
-  - name: varlog
-    hostPath:
-      path: /var/log
-
-extraVolumeMounts:
-  - name: varlibdockercontainers
-    mountPath: /var/lib/docker/containers
-    readOnly: true
-  - name: varlog
-    mountPath: /var/log
-    readOnly: true
-```
-
-## Jaeger Tracing
-
-### Jaeger Configuration
-```yaml
-# jaeger/jaeger-values.yaml
-provisionDataStore:
-  cassandra: false
-  elasticsearch: true
-
-storage:
-  type: elasticsearch
-  elasticsearch:
-    host: elasticsearch
-    port: 9200
-
-agent:
-  enabled: true
-
-collector:
-  enabled: true
-  service:
-    type: ClusterIP
-
-query:
-  enabled: true
-  service:
-    type: ClusterIP
-  ingress:
-    enabled: true
-    className: nginx
-    hosts:
-      - jaeger.taskmanagement.local
-    tls:
-      - secretName: jaeger-tls
-        hosts:
-          - jaeger.taskmanagement.local
-
-hotrod:
-  enabled: false
-```
-
-## CloudWatch Integration
-
-### CloudWatch Log Groups
-```yaml
-# cloudwatch/log-groups.yaml
-apiVersion: v1
-kind: ConfigMap
+---
+apiVersion: apps/v1
+kind: Deployment
 metadata:
-  name: fluent-bit-config
-  namespace: amazon-cloudwatch
-data:
-  fluent-bit.conf: |
-    [SERVICE]
-        Flush                     5
-        Grace                     30
-        Log_Level                 info
-        Daemon                    off
-        Parsers_File              parsers.conf
-        HTTP_Server               On
-        HTTP_Listen               0.0.0.0
-        HTTP_Port                 2020
-        storage.path              /var/fluent-bit/state/flb-storage/
-        storage.sync              normal
-        storage.checksum          off
-        storage.backlog.mem_limit 5M
-    
-    [INPUT]
-        Name                tail
-        Tag                 application.*
-        Path                /var/log/containers/*task-management*.log
-        Parser              docker
-        DB                  /var/fluent-bit/state/flb_container.db
-        Mem_Buf_Limit       50MB
-        Skip_Long_Lines     On
-        Refresh_Interval    10
-    
-    [FILTER]
-        Name                kubernetes
-        Match               application.*
-        Kube_URL            https://kubernetes.default.svc:443
-        Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-        Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token
-        Kube_Tag_Prefix     application.var.log.containers.
-        Merge_Log           On
-        Keep_Log            Off
-        K8S-Logging.Parser  On
-        K8S-Logging.Exclude On
-    
-    [OUTPUT]
-        Name                cloudwatch_logs
-        Match               application.*
-        region              us-east-1
-        log_group_name      /aws/containerinsights/task-management-cluster/application
-        log_stream_prefix   task-management-
-        auto_create_group   true
-```
-
-### CloudWatch Alarms
-```yaml
-# cloudwatch/alarms/application-alarms.yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: cloudwatch-alarms
-data:
-  alarms.json: |
-    {
-      "alarms": [
-        {
-          "AlarmName": "TaskManagement-HighErrorRate",
-          "AlarmDescription": "High error rate in Task Management API",
-          "MetricName": "ErrorRate",
-          "Namespace": "TaskManagement/Application",
-          "Statistic": "Average",
-          "Period": 300,
-          "EvaluationPeriods": 2,
-          "Threshold": 5.0,
-          "ComparisonOperator": "GreaterThanThreshold",
-          "AlarmActions": [
-            "arn:aws:sns:us-east-1:123456789012:task-management-alerts"
-          ]
-        },
-        {
-          "AlarmName": "TaskManagement-HighResponseTime",
-          "AlarmDescription": "High response time in Task Management API",
-          "MetricName": "ResponseTime",
-          "Namespace": "TaskManagement/Application",
-          "Statistic": "Average",
-          "Period": 300,
-          "EvaluationPeriods": 2,
-          "Threshold": 2000,
-          "ComparisonOperator": "GreaterThanThreshold",
-          "AlarmActions": [
-            "arn:aws:sns:us-east-1:123456789012:task-management-alerts"
-          ]
-        }
-      ]
-    }
-```
-
-## Alert Configuration
-
-### Slack Notifications
-```yaml
-# alerts/slack-webhook.yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: alertmanager-slack-webhook
+  name: logstash
   namespace: monitoring
-type: Opaque
-stringData:
-  webhook-url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: logstash
+  template:
+    metadata:
+      labels:
+        app: logstash
+    spec:
+      containers:
+      - name: logstash
+        image: docker.elastic.co/logstash/logstash:8.8.0
+        ports:
+        - containerPort: 5044
+        volumeMounts:
+        - name: config-volume
+          mountPath: /usr/share/logstash/pipeline
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+      volumes:
+      - name: config-volume
+        configMap:
+          name: logstash-config
 ---
 apiVersion: v1
-kind: ConfigMap
+kind: Service
 metadata:
-  name: alertmanager-config
+  name: logstash
   namespace: monitoring
-data:
-  alertmanager.yml: |
-    global:
-      slack_api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
-    
-    route:
-      group_by: ['alertname', 'cluster', 'service']
-      group_wait: 10s
-      group_interval: 10s
-      repeat_interval: 1h
-      receiver: 'web.hook'
-      routes:
-      - match:
-          severity: critical
-        receiver: 'slack-critical'
-      - match:
-          severity: warning
-        receiver: 'slack-warning'
-    
-    receivers:
-    - name: 'web.hook'
-      slack_configs:
-      - channel: '#alerts'
-        title: 'Task Management Alert'
-        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
-    
-    - name: 'slack-critical'
-      slack_configs:
-      - channel: '#critical-alerts'
-        title: '🚨 CRITICAL: {{ .GroupLabels.alertname }}'
-        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
-        color: 'danger'
-    
-    - name: 'slack-warning'
-      slack_configs:
-      - channel: '#alerts'
-        title: '⚠️ WARNING: {{ .GroupLabels.alertname }}'
-        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
-        color: 'warning'
+spec:
+  selector:
+    app: logstash
+  ports:
+  - name: beats
+    port: 5044
+    targetPort: 5044
+  type: ClusterIP
 ```
 
-## Deployment Scripts
-
-### Deploy Monitoring Stack
-```bash
-#!/bin/bash
-# scripts/deploy-monitoring.sh
-
-set -e
-
-NAMESPACE="monitoring"
-
-echo "🚀 Deploying monitoring stack..."
-
-# Create namespace
-kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
-
-# Add Helm repositories
-echo "📦 Adding Helm repositories..."
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo add grafana https://grafana.github.io/helm-charts
-helm repo add elastic https://helm.elastic.co
-helm repo add jaegertracing https://jaegertracing.github.io/helm-charts
-helm repo update
-
-# Deploy Prometheus Stack
-echo "📊 Deploying Prometheus and Grafana..."
-helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
-  --namespace $NAMESPACE \
-  --values prometheus/helm-values/prometheus-values.yaml \
-  --wait
-
-# Deploy Elasticsearch
-echo "🔍 Deploying Elasticsearch..."
-helm upgrade --install elasticsearch elastic/elasticsearch \
-  --namespace $NAMESPACE \
-  --values elk-stack/elasticsearch/elasticsearch-values.yaml \
-  --wait
-
-# Deploy Logstash
-echo "📝 Deploying Logstash..."
-helm upgrade --install logstash elastic/logstash \
-  --namespace $NAMESPACE \
-  --values elk-stack/logstash/logstash-values.yaml \
-  --wait
-
-# Deploy Kibana
-echo "📈 Deploying Kibana..."
-helm upgrade --install kibana elastic/kibana \
-  --namespace $NAMESPACE \
-  --values elk-stack/kibana/kibana-values.yaml \
-  --wait
-
-# Deploy Filebeat
-echo "📋 Deploying Filebeat..."
-helm upgrade --install filebeat elastic/filebeat \
-  --namespace $NAMESPACE \
-  --values elk-stack/filebeat/filebeat-values.yaml \
-  --wait
-
-# Deploy Jaeger
-echo "🔗 Deploying Jaeger..."
-helm upgrade --install jaeger jaegertracing/jaeger \
-  --namespace $NAMESPACE \
-  --values jaeger/jaeger-values.yaml \
-  --wait
-
-# Apply monitoring rules and service monitors
-echo "📋 Applying monitoring rules..."
-kubectl apply -f prometheus/rules/ -n $NAMESPACE
-kubectl apply -f prometheus/targets/ -n $NAMESPACE
-
-# Apply alert configurations
-echo "🚨 Configuring alerts..."
-kubectl apply -f alerts/ -n $NAMESPACE
-
-echo "✅ Monitoring stack deployed successfully!"
-
-# Display access information
-echo ""
-echo "🌐 Access URLs:"
-echo "Grafana: http://grafana.taskmanagement.local"
-echo "Prometheus: http://prometheus.taskmanagement.local"
-echo "Kibana: http://kibana.taskmanagement.local"
-echo "Jaeger: http://jaeger.taskmanagement.local"
-echo ""
-echo "📊 Default credentials:"
-echo "Grafana - admin:admin123"
+## elk-stack/kibana.yaml
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kibana
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kibana
+  template:
+    metadata:
+      labels:
+        app: kibana
+    spec:
+      containers:
+      - name: kibana
+        image: docker.elastic.co/kibana/kibana:8.8.0
+        ports:
+        - containerPort: 5601
+        env:
+        - name: ELASTICSEARCH_HOSTS
+          value: "http://elasticsearch:9200"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kibana
+  namespace: monitoring
+spec:
+  selector:
+    app: kibana
+  ports:
+  - name: http
+    port: 5601
+    targetPort: 5601
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kibana-ingress
+  namespace: monitoring
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+spec:
+  rules:
+  - host: kibana.taskmanagement.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: kibana
+            port:
+              number: 5601
 ```
 
-### Setup Dashboards
-```bash
-#!/bin/bash
-# scripts/setup-dashboards.sh
+## load-testing/locust/locustfile.py
+```python
+from locust import HttpUser, task, between
+import json
+import random
 
-set -e
-
-GRAFANA_URL="http://grafana.taskmanagement.local"
-GRAFANA_USER="admin"
-GRAFANA_PASS="admin123"
-
-echo "📊 Setting up Grafana dashboards..."
-
-# Wait for Grafana to be ready
-echo "⏳ Waiting for Grafana to be ready..."
-until curl -s -f "$GRAFANA_URL/api/health" > /dev/null; do
-  echo "Waiting for Grafana..."
-  sleep 5
-done
-
-# Import dashboards
-for dashboard in grafana/dashboards/*.json; do
-  echo "Importing $(basename $dashboard)..."
-  curl -X POST \
-    -H "Content-Type: application/json" \
-    -u "$GRAFANA_USER:$GRAFANA_PASS" \
-    -d @"$dashboard" \
-    "$GRAFANA_URL/api/dashboards/db"
-done
-
-echo "✅ Dashboards imported successfully!"
-```
-
-### Test Alerts
-```bash
-#!/bin/bash
-# scripts/test-alerts.sh
-
-set -e
-
-echo "🧪 Testing alert system..."
-
-# Create a test pod that will trigger alerts
-kubectl run alert-test --image=busybox --restart=Never -- /bin/sh -c "while true; do echo 'Test alert'; sleep 1; done"
-
-# Scale down application to trigger alert
-kubectl scale deployment task-management-api --replicas=0 -n task-management-dev
-
-echo "⏳ Waiting for alerts to trigger (60 seconds)..."
-sleep 60
-
-# Check alert status
-echo "📊 Current alerts:"
-curl -s http://prometheus.taskmanagement.local/api/v1/alerts | jq '.data.alerts[] | select(.state=="firing") | {alertname: .labels.alertname, state: .state}'
-
-# Cleanup
-kubectl delete pod alert-test --ignore-not-found
-kubectl scale deployment task-management-api --replicas=3 -n task-management-dev
-
-echo "✅ Alert test completed!"
-```
-
-## Performance Monitoring
-
-### Custom Metrics
-```java
-// Add to Spring Boot application
-@Component
-public class CustomMetrics {
+class TaskManagementUser(HttpUser):
+    wait_time = between(1, 3)
     
-    private final Counter taskCreatedCounter;
-    private final Timer taskProcessingTimer;
-    private final Gauge activeTasksGauge;
+    def on_start(self):
+        """Called when a user starts"""
+        self.task_ids = []
     
-    public CustomMetrics(MeterRegistry meterRegistry) {
-        this.taskCreatedCounter = Counter.builder("tasks_created_total")
-            .description("Total number of tasks created")
-            .register(meterRegistry);
+    @task(3)
+    def get_all_tasks(self):
+        """Get all tasks - most common operation"""
+        response = self.client.get("/api/tasks")
+        if response.status_code == 200:
+            tasks = response.json()
+            if tasks:
+                # Store task IDs for other operations
+                self.task_ids = [task['id'] for task in tasks if 'id' in task]
+    
+    @task(2)
+    def create_task(self):
+        """Create a new task"""
+        task_data = {
+            "title": f"Load Test Task {random.randint(1, 1000)}",
+            "description": f"This is a load test task created at {random.randint(1, 1000)}",
+            "status": random.choice(["PENDING", "IN_PROGRESS", "COMPLETED"])
+        }
+        
+        response = self.client.post(
+            "/api/tasks",
+            json=task_data,
+            headers={"Content-Type": "application/json"}
+        )
+        
+        if response.status_code == 201:
+            task = response.json()
+            if 'id' in task:
+                self.task_ids.append(task['id'])
+    
+    @task(2)
+    def get_task_by_id(self):
+        """Get a specific task by ID"""
+        if self.task_ids:
+            task_id = random.choice(self.task_ids)
+            self.client.get(f"/api/tasks/{task_id}")
+    
+    @task(1)
+    def update_task(self):
+        """Update an existing task"""
+        if self.task_ids:
+            task_id = random.choice(self.task_ids)
+            update_data = {
+                "title": f"Updated Task {random.randint(1, 1000)}",
+                "description": "Updated during load test",
+                "status": random.choice(["IN_PROGRESS", "COMPLETED"])
+            }
             
-        this.taskProcessingTimer = Timer.builder("task_processing_duration")
-            .description("Time taken to process tasks")
-            .register(meterRegistry);
-            
-        this.activeTasksGauge = Gauge.builder("active_tasks")
-            .description("Number of active tasks")
-            .register(meterRegistry, this, CustomMetrics::getActiveTaskCount);
-    }
+            self.client.put(
+                f"/api/tasks/{task_id}",
+                json=update_data,
+                headers={"Content-Type": "application/json"}
+            )
     
-    public void incrementTaskCreated() {
-        taskCreatedCounter.increment();
-    }
+    @task(1)
+    def delete_task(self):
+        """Delete a task"""
+        if len(self.task_ids) > 5:  # Keep some tasks for other operations
+            task_id = self.task_ids.pop()
+            self.client.delete(f"/api/tasks/{task_id}")
     
-    public Timer.Sample startTaskProcessing() {
-        return Timer.start(taskProcessingTimer);
-    }
+    @task(1)
+    def health_check(self):
+        """Check application health"""
+        self.client.get("/actuator/health")
     
-    private double getActiveTaskCount() {
-        // Implementation to get active task count
-        return 0.0;
+    @task(1)
+    def metrics_check(self):
+        """Check metrics endpoint"""
+        self.client.get("/actuator/prometheus")
+```
+
+## load-testing/locust/locust-deployment.yaml
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: locust-master
+  namespace: monitoring
+  labels:
+    app: locust
+    role: master
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: locust
+      role: master
+  template:
+    metadata:
+      labels:
+        app: locust
+        role: master
+    spec:
+      containers:
+      - name: locust
+        image: locustio/locust:latest
+        ports:
+        - containerPort: 8089
+        - containerPort: 5557
+        env:
+        - name: LOCUST_MODE
+          value: "master"
+        - name: TARGET_HOST
+          value: "http://task-management-service.task-management.svc.cluster.local"
+        volumeMounts:
+        - name: locust-scripts
+          mountPath: /mnt/locust
+        command: ["locust"]
+        args: ["--master", "-f", "/mnt/locust/locustfile.py"]
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "200m"
+      volumes:
+      - name: locust-scripts
+        configMap:
+          name: locust-scripts
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: locust-worker
+  namespace: monitoring
+  labels:
+    app: locust
+    role: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: locust
+      role: worker
+  template:
+    metadata:
+      labels:
+        app: locust
+        role: worker
+    spec:
+      containers:
+      - name: locust
+        image: locustio/locust:latest
+        env:
+        - name: LOCUST_MODE
+          value: "worker"
+        - name: LOCUST_MASTER
+          value: "locust-master-service"
+        - name: TARGET_HOST
+          value: "http://task-management-service.task-management.svc.cluster.local"
+        volumeMounts:
+        - name: locust-scripts
+          mountPath: /mnt/locust
+        command: ["locust"]
+        args: ["--worker", "--master-host=locust-master-service", "-f", "/mnt/locust/locustfile.py"]
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "200m"
+      volumes:
+      - name: locust-scripts
+        configMap:
+          name: locust-scripts
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: locust-master-service
+  namespace: monitoring
+spec:
+  selector:
+    app: locust
+    role: master
+  ports:
+  - name: web
+    port: 8089
+    targetPort: 8089
+  - name: master
+    port: 5557
+    targetPort: 5557
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: locust-ingress
+  namespace: monitoring
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+spec:
+  rules:
+  - host: locust.taskmanagement.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: locust-master-service
+            port:
+              number: 8089
+```
+
+## load-testing/k6/load-test.js
+```javascript
+import http from 'k6/http';
+import { check, sleep } from 'k6';
+import { Rate } from 'k6/metrics';
+
+// Custom metrics
+const errorRate = new Rate('errors');
+
+// Test configuration
+export const options = {
+  stages: [
+    { duration: '2m', target: 10 }, // Ramp up to 10 users
+    { duration: '5m', target: 10 }, // Stay at 10 users
+    { duration: '2m', target: 20 }, // Ramp up to 20 users
+    { duration: '5m', target: 20 }, // Stay at 20 users
+    { duration: '2m', target: 0 },  // Ramp down to 0 users
+  ],
+  thresholds: {
+    http_req_duration: ['p(95)<2000'], // 95% of requests must complete below 2s
+    http_req_failed: ['rate<0.05'],    // Error rate must be below 5%
+    errors: ['rate<0.05'],             // Custom error rate
+  },
+};
+
+const BASE_URL = __ENV.TARGET_HOST || 'http://localhost:8080';
+
+// Test data
+const taskTitles = [
+  'Complete project documentation',
+  'Review code changes',
+  'Deploy to production',
+  'Update dependencies',
+  'Fix critical bug',
+  'Implement new feature',
+  'Write unit tests',
+  'Performance optimization'
+];
+
+const taskStatuses = ['PENDING', 'IN_PROGRESS', 'COMPLETED'];
+
+let createdTaskIds = [];
+
+export default function () {
+  // Test scenarios with different weights
+  const scenario = Math.random();
+  
+  if (scenario < 0.4) {
+    // 40% - Get all tasks
+    getAllTasks();
+  } else if (scenario < 0.6) {
+    // 20% - Create task
+    createTask();
+  } else if (scenario < 0.8) {
+    // 20% - Get task by ID
+    getTaskById();
+  } else if (scenario < 0.9) {
+    // 10% - Update task
+    updateTask();
+  } else {
+    // 10% - Delete task
+    deleteTask();
+  }
+  
+  // Health check occasionally
+  if (Math.random() < 0.1) {
+    healthCheck();
+  }
+  
+  sleep(1);
+}
+
+function getAllTasks() {
+  const response = http.get(`${BASE_URL}/api/tasks`);
+  
+  const success = check(response, {
+    'GET /api/tasks status is 200': (r) => r.status === 200,
+    'GET /api/tasks response time < 1000ms': (r) => r.timings.duration < 1000,
+  });
+  
+  errorRate.add(!success);
+  
+  if (success && response.json()) {
+    const tasks = response.json();
+    if (Array.isArray(tasks) && tasks.length > 0) {
+      // Store some task IDs for other operations
+      createdTaskIds = tasks.slice(0, 10).map(task => task.id).filter(id => id);
     }
+  }
+}
+
+function createTask() {
+  const taskData = {
+    title: taskTitles[Math.floor(Math.random() * taskTitles.length)],
+    description: `Load test task created at ${new Date().toISOString()}`,
+    status: taskStatuses[Math.floor(Math.random() * taskStatuses.length)]
+  };
+  
+  const response = http.post(`${BASE_URL}/api/tasks`, JSON.stringify(taskData), {
+    headers: { 'Content-Type': 'application/json' },
+  });
+  
+  const success = check(response, {
+    'POST /api/tasks status is 201': (r) => r.status === 201,
+    'POST /api/tasks response time < 2000ms': (r) => r.timings.duration < 2000,
+    'POST /api/tasks returns task with ID': (r) => {
+      try {
+        const task = r.json();
+        return task && task.id;
+      } catch (e) {
+        return false;
+      }
+    },
+  });
+  
+  errorRate.add(!success);
+  
+  if (success && response.json() && response.json().id) {
+    createdTaskIds.push(response.json().id);
+    // Keep only last 20 task IDs to prevent memory issues
+    if (createdTaskIds.length > 20) {
+      createdTaskIds = createdTaskIds.slice(-20);
+    }
+  }
+}
+
+function getTaskById() {
+  if (createdTaskIds.length === 0) {
+    return;
+  }
+  
+  const taskId = createdTaskIds[Math.floor(Math.random() * createdTaskIds.length)];
+  const response = http.get(`${BASE_URL}/api/tasks/${taskId}`);
+  
+  const success = check(response, {
+    'GET /api/tasks/{id} status is 200 or 404': (r) => r.status === 200 || r.status === 404,
+    'GET /api/tasks/{id} response time < 1000ms': (r) => r.timings.duration < 1000,
+  });
+  
+  errorRate.add(!success);
+}
+
+function updateTask() {
+  if (createdTaskIds.length === 0) {
+    return;
+  }
+  
+  const taskId = createdTaskIds[Math.floor(Math.random() * createdTaskIds.length)];
+  const updateData = {
+    title: `Updated: ${taskTitles[Math.floor(Math.random() * taskTitles.length)]}`,
+    description: `Updated during load test at ${new Date().toISOString()}`,
+    status: taskStatuses[Math.floor(Math.random() * taskStatuses.length)]
+  };
+  
+  const response = http.put(`${BASE_URL}/api/tasks/${taskId}`, JSON.stringify(updateData), {
+    headers: { 'Content-Type': 'application/json' },
+  });
+  
+  const success = check(response, {
+    'PUT /api/tasks/{id} status is 200 or 404': (r) => r.status === 200 || r.status === 404,
+    'PUT /api/tasks/{id} response time < 2000ms': (r) => r.timings.duration < 2000,
+  });
+  
+  errorRate.add(!success);
+}
+
+function deleteTask() {
+  if (createdTaskIds.length <= 5) {
+    return; // Keep some tasks for other operations
+  }
+  
+  const taskId = createdTaskIds.pop();
+  const response = http.del(`${BASE_URL}/api/tasks/${taskId}`);
+  
+  const success = check(response, {
+    'DELETE /api/tasks/{id} status is 204 or 404': (r) => r.status === 204 || r.status === 404,
+    'DELETE /api/tasks/{id} response time < 1000ms': (r) => r.timings.duration < 1000,
+  });
+  
+  errorRate.add(!success);
+}
+
+function healthCheck() {
+  const response = http.get(`${BASE_URL}/actuator/health`);
+  
+  const success = check(response, {
+    'Health check status is 200': (r) => r.status === 200,
+    'Health check response time < 500ms': (r) => r.timings.duration < 500,
+    'Health check status is UP': (r) => {
+      try {
+        const health = r.json();
+        return health && health.status === 'UP';
+      } catch (e) {
+        return false;
+      }
+    },
+  });
+  
+  errorRate.add(!success);
 }
 ```
 
-## Troubleshooting Guide
+## README.md
+```markdown
+# Monitoring & Observability Stack
 
-### Common Issues
+## Overview
+Complete monitoring and observability solution for the Task Management API including metrics collection, visualization, logging, and load testing.
 
-1. **Prometheus not scraping metrics**
-   ```bash
-   kubectl logs -f deployment/prometheus-server -n monitoring
-   kubectl get servicemonitors -n monitoring
-   ```
+## Components
 
-2. **Grafana dashboard not loading**
-   ```bash
-   kubectl logs -f deployment/grafana -n monitoring
-   kubectl port-forward svc/grafana 3000:80 -n monitoring
-   ```
+### Metrics & Monitoring
+- **Prometheus**: Metrics collection and alerting
+- **Grafana**: Visualization and dashboards
+- **Loki**: Log aggregation (alternative to ELK)
 
-3. **ELK stack issues**
-   ```bash
-   kubectl logs -f statefulset/elasticsearch-master -n monitoring
-   kubectl logs -f deployment/logstash -n monitoring
-   kubectl logs -f daemonset/filebeat -n monitoring
-   ```
+### Logging (ELK Stack)
+- **Elasticsearch**: Search and analytics engine
+- **Logstash**: Log processing pipeline
+- **Kibana**: Log visualization and analysis
 
-4. **High resource usage**
-   ```bash
-   kubectl top pods -n monitoring
-   kubectl describe pod <pod-name> -n monitoring
-   ```
+### Load Testing
+- **Locust**: Python-based load testing
+- **K6**: JavaScript-based performance testing
 
-## Cost Optimization
+## Quick Start
 
-### Resource Limits
-```yaml
-# Optimized resource configuration
-resources:
-  requests:
-    memory: "256Mi"
-    cpu: "100m"
-  limits:
-    memory: "512Mi"
-    cpu: "200m"
+### Deploy Monitoring Stack
+```bash
+# Create monitoring namespace
+kubectl create namespace monitoring
+
+# Deploy Prometheus
+kubectl apply -f prometheus/
+
+# Deploy Grafana
+kubectl apply -f grafana/
+
+# Deploy Loki (optional - alternative to ELK)
+kubectl apply -f loki/
+
+# Deploy ELK Stack (optional - alternative to Loki)
+kubectl apply -f elk-stack/
+
+# Deploy Load Testing Tools
+kubectl apply -f load-testing/locust/
 ```
 
-### Storage Optimization
-```yaml
-# Retention policies
-retention: 15d
-retentionSize: 10GB
+### Access Services
+- **Prometheus**: http://prometheus.taskmanagement.local
+- **Grafana**: http://grafana.taskmanagement.local (admin/admin123)
+- **Kibana**: http://kibana.taskmanagement.local
+- **Locust**: http://locust.taskmanagement.local
 
-# Compression
-compression: true
+### Run Load Tests
+```bash
+# K6 load test
+k6 run load-testing/k6/load-test.js
+
+# With custom target
+TARGET_HOST=http://your-api.com k6 run load-testing/k6/load-test.js
 ```
 
-## Security Best Practices
+## Configuration
 
-### Network Policies
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: monitoring-network-policy
-  namespace: monitoring
-spec:
-  podSelector: {}
-  policyTypes:
-  - Ingress
-  - Egress
-  ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          name: ingress-nginx
-  egress:
-  - to: []
-    ports:
-    - protocol: TCP
-      port: 53
-    - protocol: UDP
-      port: 53
+### Prometheus Targets
+- Task Management API: `/actuator/prometheus`
+- Kubernetes nodes and pods
+- Custom application metrics
+
+### Grafana Dashboards
+- Application performance metrics
+- JVM memory and CPU usage
+- Request rates and error rates
+- Response time percentiles
+
+### Alerting Rules
+- High error rate (>5%)
+- High response time (>2s)
+- Application down
+- High memory usage
+
+## Monitoring Best Practices
+- Set up proper alerting thresholds
+- Monitor business metrics
+- Use structured logging
+- Implement distributed tracing
+- Regular load testing
+- Monitor infrastructure metrics
+
+This monitoring stack provides comprehensive observability for production environments with proper alerting and performance testing capabilities.
 ```
 
-## Project Completion Summary
+## Deployment Commands
 
-🎉 **Congratulations!** You have successfully completed the comprehensive DevOps Microservice Project covering:
+### Deploy All Monitoring Components
+```bash
+# Create namespace
+kubectl create namespace monitoring
 
-### ✅ Completed Sections:
-1. **Project Overview** - Architecture and technology stack
-2. **Source Code** - Complete Spring Boot REST API
-3. **CloudFormation Setup** - AWS infrastructure templates
-4. **Containerization** - Docker and Docker Compose
-5. **Local Build & Test** - Development workflows
-6. **Kubernetes Deployment** - Production-ready K8s manifests
-7. **CI/CD Pipeline** - GitHub Actions and ArgoCD GitOps
-8. **Infrastructure as Code** - Complete Terraform automation
-9. **Monitoring & Observability** - Full monitoring stack
+# Deploy Prometheus stack
+kubectl apply -f 8-monitoring/prometheus/
 
-### 🛠️ Technologies Mastered:
-- **Backend**: Java 17, Spring Boot, MySQL
-- **Containerization**: Docker, Docker Compose
-- **Orchestration**: Kubernetes, Helm, Kustomize
-- **CI/CD**: GitHub Actions, ArgoCD
-- **Infrastructure**: Terraform, AWS (EKS, RDS, ECR, CloudWatch)
-- **Monitoring**: Prometheus, Grafana, ELK Stack, Jaeger
-- **Security**: RBAC, Network Policies, Secret Management
+# Deploy Grafana
+kubectl apply -f 8-monitoring/grafana/
 
-### 🎯 Key Achievements:
-- Production-ready microservice architecture
-- Complete automation from code to deployment
-- Comprehensive monitoring and observability
-- Security best practices implementation
-- Cost optimization strategies
-- Multi-environment deployment workflows
+# Deploy ELK stack
+kubectl apply -f 8-monitoring/elk-stack/
 
-This project demonstrates enterprise-level DevOps practices and prepares you for senior DevOps engineer roles with hands-on experience in modern cloud-native technologies!
+# Deploy load testing
+kubectl apply -f 8-monitoring/load-testing/locust/
+```
+
+### Run Load Tests
+```bash
+# K6 load test
+k6 run 8-monitoring/load-testing/k6/load-test.js
+
+# Locust via web interface
+open http://locust.taskmanagement.local
+```
+
+This monitoring setup provides comprehensive observability with metrics, logging, visualization, and performance testing capabilities for production environments.
