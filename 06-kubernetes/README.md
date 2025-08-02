@@ -1,60 +1,7 @@
-# Section 6: Kubernetes Deployment
+# 6-Kubernetes Deployment Files
 
-## Overview
-This section covers complete Kubernetes deployment for the Task Management API including manifests, services, ingress configuration, and deployment strategies.
-
-## Directory Structure
-```
-6-kubernetes-deployment/
-├── manifests/
-│   ├── namespace.yaml
-│   ├── configmap.yaml
-│   ├── secret.yaml
-│   ├── mysql-deployment.yaml
-│   ├── mysql-service.yaml
-│   ├── mysql-pvc.yaml
-│   ├── app-deployment.yaml
-│   ├── app-service.yaml
-│   ├── app-hpa.yaml
-│   └── ingress.yaml
-├── helm-chart/
-│   ├── Chart.yaml
-│   ├── values.yaml
-│   ├── values-dev.yaml
-│   ├── values-prod.yaml
-│   └── templates/
-│       ├── deployment.yaml
-│       ├── service.yaml
-│       ├── configmap.yaml
-│       ├── secret.yaml
-│       ├── hpa.yaml
-│       └── ingress.yaml
-├── kustomize/
-│   ├── base/
-│   │   ├── kustomization.yaml
-│   │   ├── deployment.yaml
-│   │   ├── service.yaml
-│   │   └── configmap.yaml
-│   ├── overlays/
-│   │   ├── dev/
-│   │   │   ├── kustomization.yaml
-│   │   │   └── replica-patch.yaml
-│   │   └── prod/
-│   │       ├── kustomization.yaml
-│   │       ├── replica-patch.yaml
-│   │       └── resource-patch.yaml
-└── scripts/
-    ├── deploy.sh
-    ├── rollback.sh
-    ├── scale.sh
-    └── health-check.sh
-```
-
-## Kubernetes Manifests
-
-### 1. Namespace Configuration
+## namespace.yaml
 ```yaml
-# manifests/namespace.yaml
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -62,74 +9,70 @@ metadata:
   labels:
     name: task-management
     environment: production
+    project: task-api
 ```
 
-### 2. ConfigMap
+## configmap.yaml
 ```yaml
-# manifests/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: task-app-config
+  name: task-api-config
   namespace: task-management
 data:
-  application.properties: |
-    server.port=8080
-    spring.application.name=task-management-api
-    
-    # Database Configuration
-    spring.datasource.url=jdbc:mysql://mysql-service:3306/taskdb
-    spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
-    spring.jpa.hibernate.ddl-auto=update
-    spring.jpa.show-sql=false
-    spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.MySQL8Dialect
-    
-    # Logging
-    logging.level.com.taskmanagement=INFO
-    logging.pattern.console=%d{yyyy-MM-dd HH:mm:ss} - %msg%n
-    
-    # Management endpoints
-    management.endpoints.web.exposure.include=health,info,metrics,prometheus
-    management.endpoint.health.show-details=always
-    management.metrics.export.prometheus.enabled=true
+  application.yml: |
+    server:
+      port: 8080
+    spring:
+      application:
+        name: task-management-api
+      datasource:
+        url: jdbc:mysql://mysql-service:3306/taskdb
+        driver-class-name: com.mysql.cj.jdbc.Driver
+      jpa:
+        hibernate:
+          ddl-auto: update
+        show-sql: false
+        properties:
+          hibernate:
+            dialect: org.hibernate.dialect.MySQL8Dialect
+    management:
+      endpoints:
+        web:
+          exposure:
+            include: health,info,metrics,prometheus
+      endpoint:
+        health:
+          show-details: always
+      metrics:
+        export:
+          prometheus:
+            enabled: true
+    logging:
+      level:
+        com.taskapi: INFO
+      pattern:
+        console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
 ```
 
-### 3. Secret Configuration
+## secret.yaml
 ```yaml
-# manifests/secret.yaml
 apiVersion: v1
 kind: Secret
 metadata:
-  name: task-app-secret
+  name: task-api-secret
   namespace: task-management
 type: Opaque
 data:
   # Base64 encoded values
-  mysql-username: cm9vdA==  # root
-  mysql-password: cGFzc3dvcmQxMjM=  # password123
-  jwt-secret: bXlTZWNyZXRLZXlGb3JKV1Q=  # mySecretKeyForJWT
+  mysql-username: dGFza3VzZXI=  # taskuser
+  mysql-password: dGFza3Bhc3M=  # taskpass
+  mysql-root-password: cm9vdHBhc3M=  # rootpass
+  mysql-database: dGFza2Ri  # taskdb
 ```
 
-### 4. MySQL Persistent Volume Claim
+## mysql-deployment.yaml
 ```yaml
-# manifests/mysql-pvc.yaml
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: mysql-pvc
-  namespace: task-management
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 10Gi
-  storageClassName: gp2
-```
-
-### 5. MySQL Deployment
-```yaml
-# manifests/mysql-deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -137,6 +80,7 @@ metadata:
   namespace: task-management
   labels:
     app: mysql
+    tier: database
 spec:
   replicas: 1
   selector:
@@ -146,22 +90,37 @@ spec:
     metadata:
       labels:
         app: mysql
+        tier: database
     spec:
       containers:
       - name: mysql
         image: mysql:8.0
         ports:
         - containerPort: 3306
+          name: mysql
         env:
         - name: MYSQL_ROOT_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: task-app-secret
-              key: mysql-password
+              name: task-api-secret
+              key: mysql-root-password
         - name: MYSQL_DATABASE
-          value: taskdb
+          valueFrom:
+            secretKeyRef:
+              name: task-api-secret
+              key: mysql-database
+        - name: MYSQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: task-api-secret
+              key: mysql-username
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: task-api-secret
+              key: mysql-password
         volumeMounts:
-        - name: mysql-storage
+        - name: mysql-persistent-storage
           mountPath: /var/lib/mysql
         resources:
           requests:
@@ -179,6 +138,7 @@ spec:
             - localhost
           initialDelaySeconds: 30
           periodSeconds: 10
+          timeoutSeconds: 5
         readinessProbe:
           exec:
             command:
@@ -188,15 +148,28 @@ spec:
             - localhost
           initialDelaySeconds: 5
           periodSeconds: 5
+          timeoutSeconds: 3
       volumes:
-      - name: mysql-storage
+      - name: mysql-persistent-storage
         persistentVolumeClaim:
           claimName: mysql-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pvc
+  namespace: task-management
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: gp2
 ```
 
-### 6. MySQL Service
+## mysql-service.yaml
 ```yaml
-# manifests/mysql-service.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -204,61 +177,66 @@ metadata:
   namespace: task-management
   labels:
     app: mysql
+    tier: database
 spec:
   selector:
     app: mysql
   ports:
   - port: 3306
     targetPort: 3306
+    protocol: TCP
+    name: mysql
   type: ClusterIP
 ```
 
-### 7. Application Deployment
+## task-api-deployment.yaml
 ```yaml
-# manifests/app-deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: task-management-api
+  name: task-api
   namespace: task-management
   labels:
-    app: task-management-api
+    app: task-api
+    tier: backend
     version: v1
 spec:
   replicas: 3
   selector:
     matchLabels:
-      app: task-management-api
+      app: task-api
   template:
     metadata:
       labels:
-        app: task-management-api
+        app: task-api
+        tier: backend
         version: v1
     spec:
       containers:
-      - name: task-management-api
-        image: <AWS_ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/task-management-api:latest
+      - name: task-api
+        image: task-management-api:latest
         ports:
         - containerPort: 8080
+          name: http
         env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "prod"
         - name: SPRING_DATASOURCE_USERNAME
           valueFrom:
             secretKeyRef:
-              name: task-app-secret
+              name: task-api-secret
               key: mysql-username
         - name: SPRING_DATASOURCE_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: task-app-secret
+              name: task-api-secret
               key: mysql-password
-        - name: JWT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: task-app-secret
-              key: jwt-secret
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:mysql://mysql-service:3306/taskdb"
         volumeMounts:
         - name: config-volume
           mountPath: /app/config
+          readOnly: true
         resources:
           requests:
             memory: "512Mi"
@@ -270,44 +248,58 @@ spec:
           httpGet:
             path: /actuator/health
             port: 8080
-          initialDelaySeconds: 60
+          initialDelaySeconds: 90
           periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
         readinessProbe:
           httpGet:
             path: /actuator/health/readiness
             port: 8080
           initialDelaySeconds: 30
           periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
         startupProbe:
           httpGet:
             path: /actuator/health
             port: 8080
           initialDelaySeconds: 30
           periodSeconds: 10
-          failureThreshold: 10
+          timeoutSeconds: 5
+          failureThreshold: 12
       volumes:
       - name: config-volume
         configMap:
-          name: task-app-config
+          name: task-api-config
       initContainers:
       - name: wait-for-mysql
         image: busybox:1.35
-        command: ['sh', '-c', 'until nc -z mysql-service 3306; do echo waiting for mysql; sleep 2; done;']
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Waiting for MySQL to be ready..."
+          until nc -z mysql-service 3306; do
+            echo "MySQL not ready, waiting..."
+            sleep 2
+          done
+          echo "MySQL is ready!"
+      restartPolicy: Always
 ```
 
-### 8. Application Service
+## task-api-service.yaml
 ```yaml
-# manifests/app-service.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  name: task-management-service
+  name: task-api-service
   namespace: task-management
   labels:
-    app: task-management-api
+    app: task-api
+    tier: backend
 spec:
   selector:
-    app: task-management-api
+    app: task-api
   ports:
   - name: http
     port: 80
@@ -316,19 +308,69 @@ spec:
   type: ClusterIP
 ```
 
-### 9. Horizontal Pod Autoscaler
+## ingress.yaml
 ```yaml
-# manifests/app-hpa.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: task-api-ingress
+  namespace: task-management
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+spec:
+  tls:
+  - hosts:
+    - api.taskmanagement.local
+    secretName: task-api-tls
+  rules:
+  - host: api.taskmanagement.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: task-api-service
+            port:
+              number: 80
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: task-api-service
+            port:
+              number: 80
+      - path: /actuator
+        pathType: Prefix
+        backend:
+          service:
+            name: task-api-service
+            port:
+              number: 80
+```
+
+## hpa.yaml
+```yaml
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: task-management-hpa
+  name: task-api-hpa
   namespace: task-management
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: task-management-api
+    name: task-api
   minReplicas: 2
   maxReplicas: 10
   metrics:
@@ -351,500 +393,283 @@ spec:
       - type: Percent
         value: 50
         periodSeconds: 60
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      selectPolicy: Min
     scaleUp:
       stabilizationWindowSeconds: 60
       policies:
       - type: Percent
         value: 100
         periodSeconds: 60
+      - type: Pods
+        value: 4
+        periodSeconds: 60
+      selectPolicy: Max
 ```
 
-### 10. Ingress Configuration
+## pdb.yaml
 ```yaml
-# manifests/ingress.yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: policy/v1
+kind: PodDisruptionBudget
 metadata:
-  name: task-management-ingress
+  name: task-api-pdb
   namespace: task-management
-  annotations:
-    kubernetes.io/ingress.class: "nginx"
-    nginx.ingress.kubernetes.io/rewrite-target: /
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    nginx.ingress.kubernetes.io/rate-limit: "100"
-    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
 spec:
-  tls:
-  - hosts:
-    - api.taskmanagement.com
-    secretName: task-management-tls
-  rules:
-  - host: api.taskmanagement.com
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: task-management-service
-            port:
-              number: 80
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: task-api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mysql-pdb
+  namespace: task-management
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: mysql
 ```
 
-## Helm Chart Configuration
+## README.md
+```markdown
+# Kubernetes Deployment for Task Management API
 
-### Chart.yaml
-```yaml
-# helm-chart/Chart.yaml
-apiVersion: v2
-name: task-management-api
-description: A Helm chart for Task Management API
-type: application
-version: 0.1.0
-appVersion: "1.0.0"
-keywords:
-  - task-management
-  - spring-boot
-  - mysql
-home: https://github.com/your-org/task-management-api
-sources:
-  - https://github.com/your-org/task-management-api
-maintainers:
-  - name: DevOps Team
-    email: devops@company.com
-```
+## Overview
+This directory contains Kubernetes manifests for deploying the Task Management API with MySQL database in a production-ready configuration.
 
-### Values.yaml
-```yaml
-# helm-chart/values.yaml
-replicaCount: 3
+## Architecture
+- **Namespace**: Isolated environment for the application
+- **MySQL Database**: Persistent database with PVC storage
+- **Task API**: Spring Boot application with 3 replicas
+- **Ingress**: NGINX ingress with SSL termination
+- **HPA**: Auto-scaling based on CPU/memory usage
+- **PDB**: Pod disruption budgets for high availability
 
-image:
-  repository: <AWS_ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/task-management-api
-  pullPolicy: IfNotPresent
-  tag: "latest"
+## Prerequisites
+- Kubernetes cluster (v1.20+)
+- NGINX Ingress Controller
+- cert-manager for SSL certificates
+- StorageClass `gp2` available
 
-nameOverride: ""
-fullnameOverride: ""
+## Quick Deployment
 
-service:
-  type: ClusterIP
-  port: 80
-  targetPort: 8080
-
-ingress:
-  enabled: true
-  className: "nginx"
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
-  hosts:
-    - host: api.taskmanagement.com
-      paths:
-        - path: /
-          pathType: Prefix
-  tls:
-    - secretName: task-management-tls
-      hosts:
-        - api.taskmanagement.com
-
-resources:
-  limits:
-    cpu: 500m
-    memory: 1Gi
-  requests:
-    cpu: 250m
-    memory: 512Mi
-
-autoscaling:
-  enabled: true
-  minReplicas: 2
-  maxReplicas: 10
-  targetCPUUtilizationPercentage: 70
-  targetMemoryUtilizationPercentage: 80
-
-mysql:
-  enabled: true
-  image:
-    repository: mysql
-    tag: "8.0"
-  persistence:
-    enabled: true
-    size: 10Gi
-    storageClass: gp2
-  resources:
-    limits:
-      cpu: 500m
-      memory: 1Gi
-    requests:
-      cpu: 250m
-      memory: 512Mi
-
-config:
-  database:
-    name: taskdb
-  logging:
-    level: INFO
-
-secrets:
-  mysql:
-    username: root
-    password: password123
-  jwt:
-    secret: mySecretKeyForJWT
-```
-
-## Deployment Scripts
-
-### Deploy Script
+### 1. Deploy All Resources
 ```bash
-#!/bin/bash
-# scripts/deploy.sh
-
-set -e
-
-NAMESPACE="task-management"
-ENVIRONMENT=${1:-dev}
-
-echo "🚀 Deploying Task Management API to $ENVIRONMENT environment..."
-
-# Create namespace if it doesn't exist
-kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
-
-# Apply manifests
-echo "📦 Applying Kubernetes manifests..."
-kubectl apply -f manifests/ -n $NAMESPACE
-
-# Wait for MySQL to be ready
-echo "⏳ Waiting for MySQL to be ready..."
-kubectl wait --for=condition=ready pod -l app=mysql -n $NAMESPACE --timeout=300s
-
-# Wait for application to be ready
-echo "⏳ Waiting for application to be ready..."
-kubectl wait --for=condition=ready pod -l app=task-management-api -n $NAMESPACE --timeout=300s
+# Apply all manifests
+kubectl apply -f .
 
 # Check deployment status
-echo "✅ Deployment Status:"
-kubectl get pods -n $NAMESPACE
-kubectl get services -n $NAMESPACE
-kubectl get ingress -n $NAMESPACE
-
-echo "🎉 Deployment completed successfully!"
+kubectl get all -n task-management
 ```
 
-### Health Check Script
+### 2. Verify Deployment
 ```bash
-#!/bin/bash
-# scripts/health-check.sh
+# Check pods
+kubectl get pods -n task-management
 
-NAMESPACE="task-management"
-SERVICE_URL="http://api.taskmanagement.com"
+# Check services
+kubectl get svc -n task-management
 
-echo "🔍 Performing health checks..."
-
-# Check pod status
-echo "📊 Pod Status:"
-kubectl get pods -n $NAMESPACE
-
-# Check service endpoints
-echo "🔗 Service Endpoints:"
-kubectl get endpoints -n $NAMESPACE
-
-# Health check via API
-echo "🏥 API Health Check:"
-if curl -f -s "$SERVICE_URL/actuator/health" > /dev/null; then
-    echo "✅ API is healthy"
-    curl -s "$SERVICE_URL/actuator/health" | jq .
-else
-    echo "❌ API health check failed"
-    exit 1
-fi
-
-# Check metrics endpoint
-echo "📈 Metrics Endpoint:"
-if curl -f -s "$SERVICE_URL/actuator/metrics" > /dev/null; then
-    echo "✅ Metrics endpoint is accessible"
-else
-    echo "❌ Metrics endpoint check failed"
-fi
-
-echo "🎉 All health checks passed!"
+# Check ingress
+kubectl get ingress -n task-management
 ```
 
-### Scale Script
+### 3. Access Application
 ```bash
-#!/bin/bash
-# scripts/scale.sh
+# Port forward for local access
+kubectl port-forward svc/task-api-service 8080:80 -n task-management
 
-NAMESPACE="task-management"
-REPLICAS=${1:-3}
-
-echo "📈 Scaling Task Management API to $REPLICAS replicas..."
-
-kubectl scale deployment task-management-api --replicas=$REPLICAS -n $NAMESPACE
-
-echo "⏳ Waiting for scaling to complete..."
-kubectl rollout status deployment/task-management-api -n $NAMESPACE
-
-echo "📊 Current pod status:"
-kubectl get pods -n $NAMESPACE -l app=task-management-api
-
-echo "✅ Scaling completed!"
+# Test API
+curl http://localhost:8080/api/tasks
+curl http://localhost:8080/actuator/health
 ```
 
-### Rollback Script
+## Step-by-Step Deployment
+
+### 1. Create Namespace and Secrets
 ```bash
-#!/bin/bash
-# scripts/rollback.sh
-
-NAMESPACE="task-management"
-REVISION=${1:-}
-
-echo "🔄 Rolling back Task Management API deployment..."
-
-if [ -n "$REVISION" ]; then
-    kubectl rollout undo deployment/task-management-api --to-revision=$REVISION -n $NAMESPACE
-    echo "📝 Rolling back to revision $REVISION"
-else
-    kubectl rollout undo deployment/task-management-api -n $NAMESPACE
-    echo "📝 Rolling back to previous revision"
-fi
-
-echo "⏳ Waiting for rollback to complete..."
-kubectl rollout status deployment/task-management-api -n $NAMESPACE
-
-echo "📊 Rollout history:"
-kubectl rollout history deployment/task-management-api -n $NAMESPACE
-
-echo "✅ Rollback completed!"
+kubectl apply -f namespace.yaml
+kubectl apply -f secret.yaml
+kubectl apply -f configmap.yaml
 ```
 
-## Kustomize Configuration
-
-### Base Kustomization
-```yaml
-# kustomize/base/kustomization.yaml
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-
-resources:
-  - ../../manifests/namespace.yaml
-  - ../../manifests/configmap.yaml
-  - ../../manifests/secret.yaml
-  - ../../manifests/mysql-pvc.yaml
-  - ../../manifests/mysql-deployment.yaml
-  - ../../manifests/mysql-service.yaml
-  - ../../manifests/app-deployment.yaml
-  - ../../manifests/app-service.yaml
-  - ../../manifests/app-hpa.yaml
-  - ../../manifests/ingress.yaml
-
-commonLabels:
-  app.kubernetes.io/name: task-management-api
-  app.kubernetes.io/part-of: task-management-system
-
-images:
-  - name: task-management-api
-    newName: <AWS_ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/task-management-api
-    newTag: latest
-```
-
-### Development Overlay
-```yaml
-# kustomize/overlays/dev/kustomization.yaml
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-
-resources:
-  - ../../base
-
-namePrefix: dev-
-
-commonLabels:
-  environment: development
-
-patches:
-  - replica-patch.yaml
-
-images:
-  - name: task-management-api
-    newTag: dev-latest
-```
-
-```yaml
-# kustomize/overlays/dev/replica-patch.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: task-management-api
-spec:
-  replicas: 1
-```
-
-## Deployment Strategies
-
-### 1. Rolling Update (Default)
-```yaml
-spec:
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 25%
-      maxSurge: 25%
-```
-
-### 2. Blue-Green Deployment
+### 2. Deploy MySQL Database
 ```bash
-# Blue-Green deployment script
-#!/bin/bash
+kubectl apply -f mysql-deployment.yaml
+kubectl apply -f mysql-service.yaml
 
-NAMESPACE="task-management"
-NEW_VERSION=$1
-CURRENT_COLOR=$(kubectl get service task-management-service -n $NAMESPACE -o jsonpath='{.spec.selector.color}')
-NEW_COLOR=$([ "$CURRENT_COLOR" = "blue" ] && echo "green" || echo "blue")
-
-echo "Current color: $CURRENT_COLOR, New color: $NEW_COLOR"
-
-# Deploy new version with new color
-kubectl set image deployment/task-management-api-$NEW_COLOR task-management-api=<ECR_REPO>:$NEW_VERSION -n $NAMESPACE
-
-# Wait for new deployment
-kubectl rollout status deployment/task-management-api-$NEW_COLOR -n $NAMESPACE
-
-# Switch traffic
-kubectl patch service task-management-service -n $NAMESPACE -p '{"spec":{"selector":{"color":"'$NEW_COLOR'"}}}'
-
-echo "Traffic switched to $NEW_COLOR"
+# Wait for MySQL to be ready
+kubectl wait --for=condition=ready pod -l app=mysql -n task-management --timeout=300s
 ```
 
-### 3. Canary Deployment
+### 3. Deploy Task API
+```bash
+kubectl apply -f task-api-deployment.yaml
+kubectl apply -f task-api-service.yaml
+
+# Wait for API to be ready
+kubectl wait --for=condition=ready pod -l app=task-api -n task-management --timeout=300s
+```
+
+### 4. Configure Ingress and Scaling
+```bash
+kubectl apply -f ingress.yaml
+kubectl apply -f hpa.yaml
+kubectl apply -f pdb.yaml
+```
+
+## Configuration
+
+### Environment Variables
+Update secrets in `secret.yaml`:
+- `mysql-username`: Database username
+- `mysql-password`: Database password
+- `mysql-root-password`: MySQL root password
+- `mysql-database`: Database name
+
+### Image Configuration
+Update image in `task-api-deployment.yaml`:
 ```yaml
-# Canary service configuration
-apiVersion: v1
-kind: Service
-metadata:
-  name: task-management-canary
-spec:
-  selector:
-    app: task-management-api
-    version: canary
-  ports:
-  - port: 80
-    targetPort: 8080
+image: your-registry/task-management-api:v1.0.0
 ```
 
-## Monitoring and Observability
-
-### ServiceMonitor for Prometheus
+### Domain Configuration
+Update domain in `ingress.yaml`:
 ```yaml
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: task-management-metrics
-  namespace: task-management
-spec:
-  selector:
-    matchLabels:
-      app: task-management-api
-  endpoints:
-  - port: http
-    path: /actuator/prometheus
-    interval: 30s
+- host: your-domain.com
 ```
 
-## Security Best Practices
+## Monitoring
 
-### 1. Pod Security Policy
-```yaml
-apiVersion: policy/v1beta1
-kind: PodSecurityPolicy
-metadata:
-  name: task-management-psp
-spec:
-  privileged: false
-  allowPrivilegeEscalation: false
-  requiredDropCapabilities:
-    - ALL
-  volumes:
-    - 'configMap'
-    - 'emptyDir'
-    - 'projected'
-    - 'secret'
-    - 'downwardAPI'
-    - 'persistentVolumeClaim'
-  runAsUser:
-    rule: 'MustRunAsNonRoot'
-  seLinux:
-    rule: 'RunAsAny'
-  fsGroup:
-    rule: 'RunAsAny'
+### Health Checks
+```bash
+# Application health
+kubectl exec -it deployment/task-api -n task-management -- curl localhost:8080/actuator/health
+
+# Database health
+kubectl exec -it deployment/mysql -n task-management -- mysqladmin ping
 ```
 
-### 2. Network Policy
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: task-management-netpol
-  namespace: task-management
-spec:
-  podSelector:
-    matchLabels:
-      app: task-management-api
-  policyTypes:
-  - Ingress
-  - Egress
-  ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          name: ingress-nginx
-    ports:
-    - protocol: TCP
-      port: 8080
-  egress:
-  - to:
-    - podSelector:
-        matchLabels:
-          app: mysql
-    ports:
-    - protocol: TCP
-      port: 3306
+### Logs
+```bash
+# Application logs
+kubectl logs -f deployment/task-api -n task-management
+
+# Database logs
+kubectl logs -f deployment/mysql -n task-management
 ```
 
-## Troubleshooting Guide
+### Metrics
+```bash
+# HPA status
+kubectl get hpa -n task-management
 
-### Common Issues and Solutions
+# Pod metrics
+kubectl top pods -n task-management
+```
 
-1. **Pod CrashLoopBackOff**
-   ```bash
-   kubectl logs -f deployment/task-management-api -n task-management
-   kubectl describe pod <pod-name> -n task-management
-   ```
+## Scaling
 
-2. **Database Connection Issues**
-   ```bash
-   kubectl exec -it deployment/mysql -n task-management -- mysql -u root -p
-   kubectl port-forward service/mysql-service 3306:3306 -n task-management
-   ```
+### Manual Scaling
+```bash
+# Scale application
+kubectl scale deployment task-api --replicas=5 -n task-management
 
-3. **Ingress Not Working**
-   ```bash
-   kubectl get ingress -n task-management
-   kubectl describe ingress task-management-ingress -n task-management
-   ```
+# Check scaling
+kubectl get pods -n task-management
+```
 
-## Next Steps
+### Auto-scaling
+HPA automatically scales based on:
+- CPU utilization > 70%
+- Memory utilization > 80%
+- Min replicas: 2
+- Max replicas: 10
 
-After completing this section, you'll have:
-- ✅ Complete Kubernetes manifests for production deployment
-- ✅ Helm charts for package management
-- ✅ Kustomize configurations for environment-specific deployments
-- ✅ Deployment automation scripts
-- ✅ Health checking and monitoring setup
-- ✅ Security policies and network controls
+## Troubleshooting
 
-**Ready for Section 7: CI/CD Pipeline** - GitHub Actions workflows and ArgoCD GitOps setup for automated deployments.
+### Common Issues
+
+1. **Pods not starting**
+```bash
+kubectl describe pod <pod-name> -n task-management
+kubectl logs <pod-name> -n task-management
+```
+
+2. **Database connection issues**
+```bash
+# Check MySQL service
+kubectl get svc mysql-service -n task-management
+
+# Test connection
+kubectl exec -it deployment/task-api -n task-management -- nc -zv mysql-service 3306
+```
+
+3. **Ingress not working**
+```bash
+kubectl describe ingress task-api-ingress -n task-management
+kubectl get events -n task-management
+```
+
+### Cleanup
+```bash
+# Delete all resources
+kubectl delete -f .
+
+# Or delete namespace
+kubectl delete namespace task-management
+```
+
+## Security Considerations
+- Secrets are base64 encoded (use external secret management in production)
+- Non-root containers with security contexts
+- Network policies for traffic isolation
+- Resource limits to prevent resource exhaustion
+- Pod disruption budgets for availability
+
+## Production Checklist
+- [ ] Update default passwords in secrets
+- [ ] Configure proper domain and SSL certificates
+- [ ] Set up monitoring and alerting
+- [ ] Configure backup strategy for database
+- [ ] Implement network policies
+- [ ] Set up log aggregation
+- [ ] Configure resource quotas
+- [ ] Test disaster recovery procedures
+```
+
+## Deployment Commands
+
+### Quick Start
+```bash
+# Deploy everything
+kubectl apply -f 6-kubernetes/
+
+# Check status
+kubectl get all -n task-management
+
+# Access application
+kubectl port-forward svc/task-api-service 8080:80 -n task-management
+curl http://localhost:8080/api/tasks
+```
+
+### Individual Components
+```bash
+# Deploy in order
+kubectl apply -f 6-kubernetes/namespace.yaml
+kubectl apply -f 6-kubernetes/secret.yaml
+kubectl apply -f 6-kubernetes/configmap.yaml
+kubectl apply -f 6-kubernetes/mysql-deployment.yaml
+kubectl apply -f 6-kubernetes/mysql-service.yaml
+kubectl apply -f 6-kubernetes/task-api-deployment.yaml
+kubectl apply -f 6-kubernetes/task-api-service.yaml
+kubectl apply -f 6-kubernetes/ingress.yaml
+kubectl apply -f 6-kubernetes/hpa.yaml
+kubectl apply -f 6-kubernetes/pdb.yaml
+```
+
+This Kubernetes configuration provides a complete, production-ready deployment with high availability, auto-scaling, and proper resource management.
