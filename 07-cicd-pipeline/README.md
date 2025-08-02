@@ -1,4 +1,3 @@
-```
 ## Required GitHub Secrets
 
 Configure these secrets in your GitHub repository settings:
