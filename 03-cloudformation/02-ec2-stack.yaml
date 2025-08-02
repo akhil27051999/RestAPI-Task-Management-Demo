@@ -1,0 +1,183 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'EC2 Management Server for EKS Operations'
+
+Parameters:
+  EnvironmentName:
+    Description: Environment name prefix
+    Type: String
+    Default: TaskAPI
+    
+  InstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: t3a.medium
+    AllowedValues:
+      - t3a.small
+      - t3a.medium
+      - t3a.large
+    
+  KeyPairName:
+    Description: EC2 Key Pair for SSH access
+    Type: AWS::EC2::KeyPair::KeyName
+    
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+
+Resources:
+  # IAM Role for Management Server
+  ManagementServerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvironmentName}-ManagementServer-Role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: EKSManagementPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - eks:*
+                  - ec2:*
+                  - iam:*
+                  - cloudformation:*
+                  - ecr:*
+                  - logs:*
+                  - ssm:*
+                Resource: '*'
+
+  ManagementServerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ManagementServerRole
+
+  # Management Server Instance
+  ManagementServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyPairName
+      IamInstanceProfile: !Ref ManagementServerInstanceProfile
+      SecurityGroupIds:
+        - Fn::ImportValue: !Sub ${EnvironmentName}-Management-SG
+      SubnetId:
+        Fn::Select:
+          - 0
+          - Fn::Split:
+            - ","
+            - Fn::ImportValue: !Sub ${EnvironmentName}-Private-App-Subnets
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp3
+            VolumeSize: 30
+            Encrypted: true
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          
+          # Install Docker
+          yum install -y docker
+          systemctl start docker
+          systemctl enable docker
+          usermod -a -G docker ec2-user
+          
+          # Install AWS CLI v2
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          ./aws/install
+          
+          # Install kubectl
+          curl -O https://s3.us-west-2.amazonaws.com/amazon-eks/1.28.3/2023-11-14/bin/linux/amd64/kubectl
+          chmod +x ./kubectl
+          mv ./kubectl /usr/local/bin/kubectl
+          
+          # Install eksctl
+          curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+          mv /tmp/eksctl /usr/local/bin
+          
+          # Install Helm
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          
+          # Install git
+          yum install -y git
+          
+          # Install Java 17 for local development
+          yum install -y java-17-amazon-corretto-devel
+          
+          # Install Maven
+          cd /opt
+          wget https://archive.apache.org/dist/maven/maven-3/3.9.6/binaries/apache-maven-3.9.6-bin.tar.gz
+          tar xzf apache-maven-3.9.6-bin.tar.gz
+          ln -s apache-maven-3.9.6 maven
+          echo 'export PATH=/opt/maven/bin:$PATH' >> /etc/profile
+          
+          # Create working directory
+          mkdir -p /home/ec2-user/workspace
+          chown ec2-user:ec2-user /home/ec2-user/workspace
+          
+          # Install additional tools
+          yum install -y htop tree jq
+          
+          # Signal completion
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource ManagementServer --region ${AWS::Region}
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-Management-Server
+        - Key: Environment
+          Value: !Ref EnvironmentName
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M
+
+  # Elastic IP for Management Server
+  ManagementServerEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref ManagementServer
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-Management-EIP
+
+Outputs:
+  ManagementServerInstanceId:
+    Description: Management Server Instance ID
+    Value: !Ref ManagementServer
+    Export:
+      Name: !Sub ${EnvironmentName}-Management-Instance-ID
+
+  ManagementServerPrivateIP:
+    Description: Management Server Private IP
+    Value: !GetAtt ManagementServer.PrivateIp
+    Export:
+      Name: !Sub ${EnvironmentName}-Management-Private-IP
+
+  ManagementServerPublicIP:
+    Description: Management Server Public IP
+    Value: !Ref ManagementServerEIP
+    Export:
+      Name: !Sub ${EnvironmentName}-Management-Public-IP
+
+  ManagementServerRole:
+    Description: Management Server IAM Role
+    Value: !Ref ManagementServerRole
+    Export:
+      Name: !Sub ${EnvironmentName}-Management-Role
