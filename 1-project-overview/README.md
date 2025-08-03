@@ -16,7 +16,7 @@ A microservice that manages tasks for project management, allowing users to crea
 - **Scalability**: Designed to handle high traffic loads
 
 ## Architecture Overview
-
+```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        PRODUCTION ARCHITECTURE                  │
 ├─────────────────────────────────────────────────────────────────┤
@@ -49,7 +49,7 @@ A microservice that manages tasks for project management, allowing users to crea
 │  │  └─────────────┘  └─────────────┘  └─────────────┘      │    │
 │  └─────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
-
+```
 
 ## API Specification
 
