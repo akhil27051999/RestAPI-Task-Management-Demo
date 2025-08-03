@@ -17,7 +17,6 @@ A microservice that manages tasks for project management, allowing users to crea
 
 ## Architecture Overview
 
-```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        PRODUCTION ARCHITECTURE                  │
 ├─────────────────────────────────────────────────────────────────┤
@@ -50,7 +49,7 @@ A microservice that manages tasks for project management, allowing users to crea
 │  │  └─────────────┘  └─────────────┘  └─────────────┘      │    │
 │  └─────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
-```
+
 
 ## API Specification
 
