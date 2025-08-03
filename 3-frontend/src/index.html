@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Management Dashboard</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Task Management System</h1>
+        </header>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <h3>Total Tasks</h3>
+                <span id="totalTasks">0</span>
+            </div>
+            <div class="stat-card">
+                <h3>Completed</h3>
+                <span id="completedTasks">0</span>
+            </div>
+            <div class="stat-card">
+                <h3>Pending</h3>
+                <span id="pendingTasks">0</span>
+            </div>
+        </div>
+
+        <div class="task-form">
+            <h2>Add New Task</h2>
+            <form id="taskForm">
+                <input type="text" id="taskTitle" placeholder="Task Title" required>
+                <textarea id="taskDescription" placeholder="Task Description"></textarea>
+                <select id="taskPriority">
+                    <option value="LOW">Low</option>
+                    <option value="MEDIUM">Medium</option>
+                    <option value="HIGH">High</option>
+                </select>
+                <button type="submit">Add Task</button>
+            </form>
+        </div>
+
+        <div class="tasks-section">
+            <h2>Tasks</h2>
+            <div id="tasksList"></div>
+        </div>
+    </div>
+
+    <script src="js/script.js"></script>
+</body>
+</html>
