@@ -21,32 +21,27 @@ Complete monitoring and observability solution for the Task Management API inclu
 
 ## Quick Start
 
-### Deploy Monitoring Stack
+## Deployment Commands
+
 ```bash
-# Create monitoring namespace
-kubectl create namespace monitoring
+# Deploy monitoring stack
+kubectl apply -f 9-monitoring/prometheus/
+kubectl apply -f 9-monitoring/grafana/
+kubectl apply -f 9-monitoring/loki/
+kubectl apply -f 9-monitoring/elk-stack/
 
-# Deploy Prometheus
-kubectl apply -f prometheus/
+# Deploy load testing
+kubectl apply -f 9-monitoring/load-testing/locust/
 
-# Deploy Grafana
-kubectl apply -f grafana/
-
-# Deploy Loki (optional - alternative to ELK)
-kubectl apply -f loki/
-
-# Deploy ELK Stack (optional - alternative to Loki)
-kubectl apply -f elk-stack/
-
-# Deploy Load Testing Tools
-kubectl apply -f load-testing/locust/
+# Run K6 load test
+k6 run 9-monitoring/load-testing/k6/load-test.js
 ```
 
-### Access Services
-- **Prometheus**: http://prometheus.taskmanagement.local
-- **Grafana**: http://grafana.taskmanagement.local (admin/admin123)
-- **Kibana**: http://kibana.taskmanagement.local
-- **Locust**: http://locust.taskmanagement.local
+## Access URLs
+- Prometheus: http://prometheus-service:9090
+- Grafana: http://grafana-service:3000 (admin/admin123)
+- Kibana: http://kibana-service:5601
+- Locust: http://locust-service:8089
 
 ### Run Load Tests
 ```bash
@@ -85,35 +80,3 @@ TARGET_HOST=http://your-api.com k6 run load-testing/k6/load-test.js
 - Monitor infrastructure metrics
 
 This monitoring stack provides comprehensive observability for production environments with proper alerting and performance testing capabilities.
-
-
-## Deployment Commands
-
-### Deploy All Monitoring Components
-```bash
-# Create namespace
-kubectl create namespace monitoring
-
-# Deploy Prometheus stack
-kubectl apply -f 8-monitoring/prometheus/
-
-# Deploy Grafana
-kubectl apply -f 8-monitoring/grafana/
-
-# Deploy ELK stack
-kubectl apply -f 8-monitoring/elk-stack/
-
-# Deploy load testing
-kubectl apply -f 8-monitoring/load-testing/locust/
-```
-
-### Run Load Tests
-```bash
-# K6 load test
-k6 run 8-monitoring/load-testing/k6/load-test.js
-
-# Locust via web interface
-open http://locust.taskmanagement.local
-```
-
-This monitoring setup provides comprehensive observability with metrics, logging, visualization, and performance testing capabilities for production environments.
