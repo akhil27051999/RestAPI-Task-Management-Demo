@@ -1,216 +1,209 @@
 #!/bin/bash
 
+# Task Management System - Kubernetes Deployment Script
+
 set -e
 
-PROJECT_NAME="task-management-api"
 NAMESPACE="task-management"
-ENVIRONMENT=${1:-dev}
+REGISTRY="your-registry"
+VERSION=${1:-"latest"}
 
-echo "🚀 Deploying $PROJECT_NAME to Kubernetes ($ENVIRONMENT environment)..."
+echo "🚀 Deploying Task Management System to Kubernetes..."
+echo "📦 Version: $VERSION"
+echo "🏷️ Namespace: $NAMESPACE"
 
-# Validate environment
-validate_environment() {
-    if [[ ! "$ENVIRONMENT" =~ ^(dev|staging|prod)$ ]]; then
-        echo "❌ Invalid environment. Use: dev, staging, or prod"
-        exit 1
-    fi
+# Build and push images
+build_and_push() {
+    echo "🔨 Building and pushing images..."
     
-    echo "✅ Environment: $ENVIRONMENT"
-}
-
-# Check prerequisites
-check_prerequisites() {
-    echo "✅ Checking prerequisites..."
+    # Build backend
+    echo "Building backend image..."
+    cd 2-source-code
+    docker build -t $REGISTRY/task-management-api:$VERSION .
+    docker push $REGISTRY/task-management-api:$VERSION
+    cd ..
     
-    command -v kubectl >/dev/null 2>&1 || { echo "❌ kubectl is required"; exit 1; }
+    # Build frontend
+    echo "Building frontend image..."
+    cd 3-frontend
+    docker build -t $REGISTRY/task-management-frontend:$VERSION .
+    docker push $REGISTRY/task-management-frontend:$VERSION
+    cd ..
     
-    # Check if cluster is accessible
-    if ! kubectl cluster-info >/dev/null 2>&1; then
-        echo "❌ Kubernetes cluster not accessible"
-        exit 1
-    fi
-    
-    # Check if namespace exists
-    if ! kubectl get namespace $NAMESPACE >/dev/null 2>&1; then
-        echo "❌ Namespace $NAMESPACE does not exist. Run setup-environment.sh first."
-        exit 1
-    fi
-    
-    echo "✅ Prerequisites met"
-}
-
-# Update image tags based on environment
-update_image_tags() {
-    echo "🏷️ Updating image tags for $ENVIRONMENT..."
-    
-    case $ENVIRONMENT in
-        dev)
-            IMAGE_TAG="dev-latest"
-            REPLICAS=1
-            ;;
-        staging)
-            IMAGE_TAG="staging-latest"
-            REPLICAS=2
-            ;;
-        prod)
-            IMAGE_TAG="latest"
-            REPLICAS=3
-            ;;
-    esac
-    
-    # Update deployment manifest
-    if [ -f "k8s/task-api-deployment.yaml" ]; then
-        sed -i.bak "s|image: .*task-management-api:.*|image: task-management-api:$IMAGE_TAG|g" k8s/task-api-deployment.yaml
-        sed -i.bak "s|replicas: .*|replicas: $REPLICAS|g" k8s/task-api-deployment.yaml
-    fi
-    
-    echo "✅ Image tags updated: $IMAGE_TAG, Replicas: $REPLICAS"
+    echo "✅ Images built and pushed"
 }
 
 # Deploy database
 deploy_database() {
-    echo "🗄️ Deploying database..."
+    echo "🗄️ Deploying MySQL database..."
     
-    # Apply database manifests
-    kubectl apply -f k8s/mysql-deployment.yaml -n $NAMESPACE
-    kubectl apply -f k8s/mysql-service.yaml -n $NAMESPACE
+    kubectl apply -f - <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+  namespace: $NAMESPACE
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+      - name: mysql
+        image: mysql:8.0
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          value: "rootpassword"
+        - name: MYSQL_DATABASE
+          value: "taskdb"
+        - name: MYSQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secret
+              key: username
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secret
+              key: password
+        ports:
+        - containerPort: 3306
+        volumeMounts:
+        - name: mysql-storage
+          mountPath: /var/lib/mysql
+      volumes:
+      - name: mysql-storage
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-service
+  namespace: $NAMESPACE
+spec:
+  selector:
+    app: mysql
+  ports:
+    - port: 3306
+      targetPort: 3306
+EOF
     
-    # Wait for database to be ready
-    echo "⏳ Waiting for database to be ready..."
-    kubectl wait --for=condition=ready pod -l app=mysql -n $NAMESPACE --timeout=300s
-    
-    echo "✅ Database deployed and ready"
+    echo "✅ MySQL deployed"
 }
 
-# Deploy application
-deploy_application() {
-    echo "📱 Deploying application..."
+# Deploy backend
+deploy_backend() {
+    echo "⚙️ Deploying backend API..."
     
-    # Apply application manifests
-    kubectl apply -f k8s/configmap.yaml -n $NAMESPACE
-    kubectl apply -f k8s/secret.yaml -n $NAMESPACE
-    kubectl apply -f k8s/task-api-deployment.yaml -n $NAMESPACE
-    kubectl apply -f k8s/task-api-service.yaml -n $NAMESPACE
+    # Update image tag in deployment
+    sed -i "s|task-management-api:latest|$REGISTRY/task-management-api:$VERSION|g" 7-kubernetes/task-api-deployment.yaml
     
-    # Wait for application to be ready
-    echo "⏳ Waiting for application to be ready..."
-    kubectl wait --for=condition=ready pod -l app=task-api -n $NAMESPACE --timeout=300s
+    kubectl apply -f 7-kubernetes/task-api-deployment.yaml -n $NAMESPACE
+    kubectl apply -f 7-kubernetes/task-api-service.yaml -n $NAMESPACE
     
-    echo "✅ Application deployed and ready"
+    echo "✅ Backend deployed"
 }
 
-# Deploy ingress and scaling
-deploy_ingress_scaling() {
-    echo "🌐 Deploying ingress and scaling..."
+# Deploy frontend
+deploy_frontend() {
+    echo "🌐 Deploying frontend..."
     
-    # Apply ingress and scaling manifests
-    kubectl apply -f k8s/ingress.yaml -n $NAMESPACE
+    # Update image tag in deployment
+    sed -i "s|task-management-frontend:latest|$REGISTRY/task-management-frontend:$VERSION|g" 7-kubernetes/frontend-deployment.yaml
     
-    if [ "$ENVIRONMENT" = "prod" ]; then
-        kubectl apply -f k8s/hpa.yaml -n $NAMESPACE
-        kubectl apply -f k8s/pdb.yaml -n $NAMESPACE
-        echo "✅ HPA and PDB configured for production"
-    fi
+    kubectl apply -f 7-kubernetes/frontend-deployment.yaml -n $NAMESPACE
+    kubectl apply -f 7-kubernetes/frontend-service.yaml -n $NAMESPACE
     
-    echo "✅ Ingress and scaling configured"
+    echo "✅ Frontend deployed"
 }
 
-# Verify deployment
-verify_deployment() {
-    echo "🔍 Verifying deployment..."
+# Deploy ingress
+deploy_ingress() {
+    echo "🌍 Deploying ingress..."
     
-    # Check all resources
-    echo "📋 Deployment status:"
-    kubectl get all -n $NAMESPACE
+    kubectl apply -f 7-kubernetes/ingress.yaml -n $NAMESPACE
     
+    echo "✅ Ingress deployed"
+}
+
+# Deploy monitoring
+deploy_monitoring() {
+    echo "📊 Deploying monitoring stack..."
+    
+    kubectl apply -f 9-monitoring/prometheus/ -n $NAMESPACE
+    kubectl apply -f 9-monitoring/grafana/ -n $NAMESPACE
+    
+    echo "✅ Monitoring deployed"
+}
+
+# Wait for deployments
+wait_for_deployments() {
+    echo "⏳ Waiting for deployments to be ready..."
+    
+    kubectl wait --for=condition=available --timeout=300s deployment/mysql -n $NAMESPACE
+    kubectl wait --for=condition=available --timeout=300s deployment/task-backend -n $NAMESPACE
+    kubectl wait --for=condition=available --timeout=300s deployment/task-frontend -n $NAMESPACE
+    
+    echo "✅ All deployments ready"
+}
+
+# Show status
+show_status() {
     echo ""
-    echo "🔗 Services:"
+    echo "📋 Deployment Status:"
+    kubectl get pods -n $NAMESPACE
+    echo ""
     kubectl get svc -n $NAMESPACE
-    
     echo ""
-    echo "🌐 Ingress:"
     kubectl get ingress -n $NAMESPACE
-    
-    # Health check
     echo ""
-    echo "🏥 Performing health check..."
     
-    # Port forward for health check
-    kubectl port-forward svc/task-api-service 8080:80 -n $NAMESPACE &
-    PF_PID=$!
-    
-    sleep 10
-    
-    if curl -f -s http://localhost:8080/actuator/health >/dev/null; then
-        echo "✅ Health check passed"
+    # Get ingress IP
+    INGRESS_IP=$(kubectl get ingress task-management-ingress -n $NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+    if [ ! -z "$INGRESS_IP" ]; then
+        echo "🌐 Access your application at: http://$INGRESS_IP"
     else
-        echo "⚠️ Health check failed - application may still be starting"
+        echo "🌐 Ingress IP pending... Check with: kubectl get ingress -n $NAMESPACE"
     fi
-    
-    # Kill port forward
-    kill $PF_PID 2>/dev/null || true
-    
-    echo "✅ Deployment verification completed"
-}
-
-# Show access information
-show_access_info() {
-    echo ""
-    echo "🎉 Deployment completed successfully!"
-    echo ""
-    echo "📋 Access Information:"
-    echo "  🌐 Application URL: http://api.taskmanagement.local"
-    echo "  🏥 Health Check: http://api.taskmanagement.local/actuator/health"
-    echo "  📊 Metrics: http://api.taskmanagement.local/actuator/prometheus"
-    echo ""
-    echo "🔧 Useful Commands:"
-    echo "  📋 View pods: kubectl get pods -n $NAMESPACE"
-    echo "  📝 View logs: kubectl logs -f deployment/task-api -n $NAMESPACE"
-    echo "  🔗 Port forward: kubectl port-forward svc/task-api-service 8080:80 -n $NAMESPACE"
-    echo "  📊 Scale app: kubectl scale deployment task-api --replicas=5 -n $NAMESPACE"
-    echo ""
-    echo "🧪 Test API:"
-    echo "  curl -X POST http://api.taskmanagement.local/api/tasks \\"
-    echo "    -H 'Content-Type: application/json' \\"
-    echo "    -d '{\"title\":\"Test Task\",\"description\":\"Test Description\"}'"
-    echo ""
 }
 
 # Rollback function
-rollback_deployment() {
+rollback() {
     echo "🔄 Rolling back deployment..."
-    
-    kubectl rollout undo deployment/task-api -n $NAMESPACE
-    kubectl rollout undo deployment/mysql -n $NAMESPACE
-    
-    echo "✅ Rollback completed"
+    kubectl rollout undo deployment/task-backend -n $NAMESPACE
+    kubectl rollout undo deployment/task-frontend -n $NAMESPACE
+    echo "✅ Rollback complete"
 }
 
 # Main execution
 main() {
-    echo "🎯 Starting deployment to $ENVIRONMENT environment"
-    
-    validate_environment
-    check_prerequisites
-    update_image_tags
-    deploy_database
-    deploy_application
-    deploy_ingress_scaling
-    verify_deployment
-    show_access_info
+    case "${1:-deploy}" in
+        "deploy")
+            build_and_push
+            deploy_database
+            deploy_backend
+            deploy_frontend
+            deploy_ingress
+            deploy_monitoring
+            wait_for_deployments
+            show_status
+            ;;
+        "rollback")
+            rollback
+            ;;
+        "status")
+            show_status
+            ;;
+        *)
+            echo "Usage: $0 [deploy|rollback|status] [version]"
+            exit 1
+            ;;
+    esac
 }
 
-# Handle script arguments
-case "${2:-deploy}" in
-    deploy)
-        main "$@"
-        ;;
-    rollback)
-        rollback_deployment
-        ;;
-    *)
-        echo "Usage: $0 <environment> [deploy|rollback]"
-        echo "Environments: dev, staging, prod"
-        exit 1
-        ;;
-esac
+main "$@"
