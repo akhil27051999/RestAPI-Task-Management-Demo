@@ -25,7 +25,9 @@ services:
 
   # Backend Application
   app:
-    build: ../2-source-code
+    build:
+      context: ../2-source-code
+      dockerfile: Dockerfile
     container_name: task-app
     depends_on:
       mysql:
@@ -41,7 +43,9 @@ services:
 
   # Frontend Application
   frontend:
-    build: ../3-frontend
+    build:
+      context: ../3-frontend
+      dockerfile: Dockerfile
     container_name: task-frontend
     depends_on:
       - app
