@@ -346,68 +346,68 @@ GET /api/tasks?department=ENGINEERING,DEVOPS&priority=HIGH,CRITICAL
 ### **Developer Dashboard** (john.doe)
 ```
 ┌─────────────────────────────────────────────────────┐
-│  My Tasks - John Doe (Backend Developer)           │
+│  My Tasks - John Doe (Backend Developer)            │
 ├─────────────────────────────────────────────────────┤
-│  🔴 IN PROGRESS (1)                                 │
-│  └─ Implement user authentication API              │
-│     Due: Jan 20 | 16h estimated | HIGH priority    │
+│  🔴 IN PROGRESS (1)                                │
+│  └─ Implement user authentication API               │
+│     Due: Jan 20 | 16h estimated | HIGH priority     │
 │                                                     │
-│  📋 TEAM UPDATES                                    │
+│  📋 TEAM UPDATES                                   │
 │  └─ Mike: Fixed payment gateway bug ✅             │
-│  └─ Tom: Database optimization 60% complete        │
+│  └─ Tom: Database optimization 60% complete         │
 └─────────────────────────────────────────────────────┘
 ```
 
 ### **QA Dashboard** (lisa.qa)
 ```
 ┌─────────────────────────────────────────────────────┐
-│  QA Tasks - Lisa (QA Tester)                       │
+│  QA Tasks - Lisa (QA Tester)                        │
 ├─────────────────────────────────────────────────────┤
-│  ⏳ PENDING (1)                                     │
-│  └─ Test checkout process on mobile                │
-│     Due: Jan 22 | 12h estimated | HIGH priority    │
+│  ⏳ PENDING (1)                                    │
+│  └─ Test checkout process on mobile                 │
+│     Due: Jan 22 | 12h estimated | HIGH priority     │
 │                                                     │
 │  🐛 BUGS TO VERIFY                                  │
-│  └─ Payment gateway fix (waiting for dev)          │
+│  └─ Payment gateway fix (waiting for dev)           │
 └─────────────────────────────────────────────────────┘
 ```
 
 ### **Project Manager Dashboard** (robert.pm)
 ```
 ┌─────────────────────────────────────────────────────┐
-│  Project Overview - E-commerce Platform            │
+│  Project Overview - E-commerce Platform             │
 ├─────────────────────────────────────────────────────┤
 │  🚨 CRITICAL ISSUES (1)                            │
-│  └─ Payment gateway timeout - Mike (In Progress)   │
+│  └─ Payment gateway timeout - Mike (In Progress)    │
 │                                                     │
-│  📈 PROJECT PROGRESS                                │
-│  ├─ Backend: 65% complete                          │
-│  ├─ Frontend: 45% complete                         │
-│  ├─ QA: 30% complete                               │
-│  └─ DevOps: 80% complete                           │
+│  📈 PROJECT PROGRESS                               │
+│  ├─ Backend: 65% complete                           │
+│  ├─ Frontend: 45% complete                          │
+│  ├─ QA: 30% complete                                │
+│  └─ DevOps: 80% complete                            │
 │                                                     │
-│  ⏰ UPCOMING DEADLINES                              │
-│  ├─ Jan 18: Staging deployment                     │
-│  ├─ Jan 19: Client demo preparation                │
-│  └─ Jan 20: Authentication API                     │
+│  ⏰ UPCOMING DEADLINES                             │
+│  ├─ Jan 18: Staging deployment                      │
+│  ├─ Jan 19: Client demo preparation                 │
+│  └─ Jan 20: Authentication API                      │
 └─────────────────────────────────────────────────────┘
 ```
 
 ### **Team Lead Dashboard** (tech.lead)
 ```
 ┌─────────────────────────────────────────────────────┐
-│  Backend Team Status                               │
+│  Backend Team Status                                │
 ├─────────────────────────────────────────────────────┤
-│  👥 TEAM WORKLOAD                                   │
-│  ├─ John Doe: 1 task (HIGH load)                   │
-│  ├─ Mike Senior: 1 task (CRITICAL)                 │
-│  └─ Tom DBA: 1 task (MEDIUM load)                  │
+│  👥 TEAM WORKLOAD                                  │
+│  ├─ John Doe: 1 task (HIGH load)                    │
+│  ├─ Mike Senior: 1 task (CRITICAL)                  │
+│  └─ Tom DBA: 1 task (MEDIUM load)                   │
 │                                                     │
-│  🔥 URGENT ITEMS                                    │
-│  └─ Payment gateway fix needs immediate attention  │
+│  🔥 URGENT ITEMS                                   │
+│  └─ Payment gateway fix needs immediate attention   │
 │                                                     │
-│  📋 BLOCKERS                                        │
-│  └─ None currently                                 │
+│  📋 BLOCKERS                                       │
+│  └─ None currently                                  │
 └─────────────────────────────────────────────────────┘
 ```
 
