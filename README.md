@@ -163,23 +163,36 @@ task-management-api/
 │   ├── pom.xml
 │   ├── .gitignore
 │   └── README.md
-├── 3-cloudformation-setup/
+├── 3-frontend/                              # NEW FRONTEND SECTION
+│   ├── src/
+│   │   ├── index.html
+│   │   ├── css/
+│   │   │   └── style.css
+│   │   ├── js/
+│   │   │   └── script.js
+│   │   └── assets/
+│   │       └── images/
+│   ├── Dockerfile
+│   ├── nginx.conf
+│   ├── package.json
+│   └── README.md
+├── 4-cloudformation-setup/
 │   ├── 01-vpc-stack.yaml
 │   ├── 02-ec2-stack.yaml
 │   ├── 03-eks-stack.yaml
 │   └── README.md
-├── 4-containerization/
+├── 5-containerization/
 │   ├── Dockerfile
-│   ├── docker-compose.yml
+│   ├── docker-compose.yml                   # UPDATED WITH FRONTEND
 │   ├── .dockerignore
 │   └── README.md
-├── 5-local-build-test/
+├── 6-local-build-test/
 │   ├── scripts/
 │   │   ├── build.sh
 │   │   ├── test.sh
 │   │   └── run-local.sh
 │   └── README.md
-├── 6-kubernetes/
+├── 7-kubernetes/
 │   ├── namespace.yaml
 │   ├── configmap.yaml
 │   ├── secret.yaml
@@ -187,15 +200,17 @@ task-management-api/
 │   ├── mysql-service.yaml
 │   ├── task-api-deployment.yaml
 │   ├── task-api-service.yaml
-│   ├── ingress.yaml
+│   ├── frontend-deployment.yaml             # NEW FRONTEND K8S
+│   ├── frontend-service.yaml               # NEW FRONTEND K8S
+│   ├── ingress.yaml                         # UPDATED FOR FRONTEND
 │   ├── hpa.yaml
 │   ├── pdb.yaml
 │   └── README.md
-├── 7-cicd/
+├── 8-cicd/
 │   ├── github-actions/
-│   │   └── ci-cd-pipeline.yml
+│   │   └── ci-cd-pipeline.yml               # UPDATED WITH FRONTEND BUILD
 │   ├── jenkins/
-│   │   └── Jenkinsfile
+│   │   └── Jenkinsfile                      # UPDATED WITH FRONTEND BUILD
 │   ├── argocd/
 │   │   ├── application.yaml
 │   │   └── config-repo/
@@ -203,15 +218,16 @@ task-management-api/
 │   │       ├── staging/
 │   │       └── production/
 │   └── README.md
-├── 8-monitoring/
+├── 9-monitoring/
 │   ├── prometheus/
-│   │   ├── prometheus-config.yaml
+│   │   ├── prometheus-config.yaml           # UPDATED TO SCRAPE FRONTEND
 │   │   ├── prometheus-deployment.yaml
 │   │   └── prometheus-service.yaml
 │   ├── grafana/
 │   │   ├── grafana-deployment.yaml
 │   │   ├── grafana-service.yaml
 │   │   └── dashboards/
+│   │       └── frontend-dashboard.json      # NEW FRONTEND DASHBOARD
 │   ├── loki/
 │   │   ├── loki-config.yaml
 │   │   └── loki-deployment.yaml
@@ -226,19 +242,22 @@ task-management-api/
 │   │   └── k6/
 │   │       └── load-test.js
 │   └── README.md
-├── 9-documentation/
+├── 10-documentation/
 │   ├── api-documentation.md
-│   ├── deployment-guide.md
+│   ├── frontend-guide.md                    # NEW FRONTEND DOCS
+│   ├── deployment-guide.md                  # UPDATED WITH FRONTEND
 │   ├── troubleshooting.md
 │   └── best-practices.md
 ├── .github/
 │   └── workflows/
-│       └── ci-cd.yml
+│       └── ci-cd.yml                        # UPDATED WITH FRONTEND
 ├── scripts/
 │   ├── setup-environment.sh
-│   ├── deploy-to-k8s.sh
+│   ├── deploy-to-k8s.sh                     # UPDATED WITH FRONTEND
+│   ├── build-frontend.sh                    # NEW FRONTEND BUILD SCRIPT
 │   └── cleanup.sh
-└── README.md
+└── README.md                                # UPDATED WITH FRONTEND INFO
+
 ```
 
 ## 🔄 CI/CD Pipeline
