@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-config
+data:
+  logstash.conf: |
+    input {
+      beats {
+        port => 5044
+      }
+    }
+    filter {
+      if [fields][service] == "frontend" {
+        grok {
+          match => { "message" => "%{NGINXACCESS}" }
+        }
+      }
+    }
+    output {
+      elasticsearch {
+        hosts => ["elasticsearch-service:9200"]
+        index => "logs-%{+YYYY.MM.dd}"
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logstash
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: logstash
+  template:
+    metadata:
+      labels:
+        app: logstash
+    spec:
+      containers:
+      - name: logstash
+        image: docker.elastic.co/logstash/logstash:8.8.0
+        ports:
+        - containerPort: 5044
+        volumeMounts:
+        - name: logstash-config
+          mountPath: /usr/share/logstash/pipeline
+      volumes:
+      - name: logstash-config
+        configMap:
+          name: logstash-config
