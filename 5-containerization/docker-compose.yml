@@ -25,7 +25,7 @@ services:
 
   # Backend Application
   app:
-    build: .
+    build: ../2-source-code
     container_name: task-app
     depends_on:
       mysql:
@@ -41,16 +41,12 @@ services:
 
   # Frontend Application
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    build: ../3-frontend
     container_name: task-frontend
     depends_on:
       - app
     ports:
       - "3001:80"
-    environment:
-      - API_BASE_URL=http://app:8080
     networks:
       - task-network
 
