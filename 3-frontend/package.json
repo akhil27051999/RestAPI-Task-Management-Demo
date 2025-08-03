@@ -1,0 +1,25 @@
+{
+  "name": "task-management-frontend",
+  "version": "1.0.0",
+  "description": "Frontend dashboard for Task Management API",
+  "main": "src/index.html",
+  "scripts": {
+    "start": "http-server src -p 3001",
+    "build": "echo 'No build process needed for static files'",
+    "dev": "http-server src -p 3001 -o"
+  },
+  "keywords": [
+    "task-management",
+    "dashboard",
+    "frontend"
+  ],
+  "author": "DevOps Team",
+  "license": "MIT",
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/task-management-api.git"
+  }
+}
