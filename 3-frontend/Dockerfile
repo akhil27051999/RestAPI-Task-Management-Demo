@@ -1,10 +1,10 @@
-# Multi-stage build for production
 FROM nginx:alpine
 
 # Copy static files
-COPY index.html /usr/share/nginx/html/
-COPY style.css /usr/share/nginx/html/
-COPY script.js /usr/share/nginx/html/
+COPY src/index.html /usr/share/nginx/html/
+COPY src/css/ /usr/share/nginx/html/css/
+COPY src/js/ /usr/share/nginx/html/js/
+COPY src/assets/ /usr/share/nginx/html/assets/
 
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf
