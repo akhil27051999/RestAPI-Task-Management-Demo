@@ -447,6 +447,82 @@ GET /api/tasks?department=ENGINEERING,DEVOPS&priority=HIGH,CRITICAL
 
 ## 🎯 Real-World Usage Scenarios
 
+#### Where to Check Created Tasks
+**1. API Endpoints (Direct Access)**
+```bash
+# Check all tasks you created
+curl http://localhost:8080/api/tasks
+
+# Check specific task by ID
+curl http://localhost:8080/api/tasks/1
+
+# Check tasks assigned to you
+curl "http://localhost:8080/api/tasks?assignedTo=john.doe"
+
+# Check tasks by status
+curl "http://localhost:8080/api/tasks?status=PENDING"
+```
+
+**2. Database (Direct Storage)**
+```bash
+# Connect to MySQL database
+sudo docker exec -it task-mysql mysql -u taskuser -p taskdb
+# Password: taskpass
+```
+```sql
+# View all tasks in database
+SELECT * FROM tasks;
+
+# View specific columns
+SELECT id, title, status, created_at FROM tasks;
+
+# Exit database
+EXIT;
+```
+
+**3. Application Logs**
+```bash
+# Check application logs for task creation
+sudo docker logs task-api | grep -i "task"
+
+# Real-time log monitoring
+sudo docker logs -f task-api
+```
+
+**4. Grafana Dashboard (Visual Monitoring)**
+
+**URL** : http://localhost:3000
+
+**Login** : admin/admin123
+
+**Dashboard** : "Task Management API Monitoring"
+
+**Panels** : Shows request counts, API activity
+
+**5. Prometheus Metrics (System Monitoring)**
+**URL** : http://localhost:9090
+
+**Query** : http_server_requests_seconds_count{uri="/api/tasks"}
+
+**Shows** : How many API calls were made
+
+### Quick Test Workflow:
+```bash
+# 1. Create a task
+curl -X POST http://localhost:8080/api/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Test Task","description":"Testing"}'
+
+# 2. Check if it was created
+curl http://localhost:8080/api/tasks
+
+# 3. Verify in database
+sudo docker exec -it task-mysql mysql -u taskuser -p taskdb -e "SELECT * FROM tasks;"
+```
+**Most Common** : Use the API endpoint GET /api/tasks to see all created tasks in JSON format.
+
+---
+
 ### **Morning Standup (9:00 AM)**
 Each team member checks their role-specific dashboard:
 
