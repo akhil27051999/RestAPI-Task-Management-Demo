@@ -1,97 +1,223 @@
-# Local Testing with Docker Compose - Documentation
+# Task Management API - Complete Local Testing Documentation
 
-## Overview
-This document provides comprehensive guidance for local testing of the Task Management API using Docker Compose, including troubleshooting steps encountered during the build process.
+## 📋 Table of Contents
+1. [Project Overview](#project-overview)
+2. [Architecture](#architecture)
+3. [Prerequisites](#prerequisites)
+4. [Local Setup and Deployment](#local-setup-and-deployment)
+5. [Application Testing](#application-testing)
+6. [Monitoring Stack Setup](#monitoring-stack-setup)
+7. [Prometheus Configuration](#prometheus-configuration)
+8. [Grafana Dashboard Creation](#grafana-dashboard-creation)
+9. [Troubleshooting Guide](#troubleshooting-guide)
+10. [Complete Workflow Summary](#complete-workflow-summary)
 
-## Prerequisites
-- Docker 20.10+
-- Docker Compose 2.0+
-- 4GB+ available RAM
-- Ports 3000, 8080, 9090 available
+## 🎯 Project Overview
 
-## Project Structure
+The Task Management API is a Spring Boot REST application that provides CRUD operations for task management. This documentation covers the complete local testing setup including:
+
+- **Spring Boot Application**: REST API with MySQL database
+- **Containerization**: Docker and Docker Compose setup
+- **Monitoring**: Prometheus metrics collection
+- **Visualization**: Grafana dashboards
+- **Local Testing**: Complete testing workflow
+
+## 🏗️ Architecture
+
 ```
-4-containerization/
-├── Dockerfile                    # Application container image
-├── docker-compose.yml           # Multi-service orchestration
-├── .dockerignore                # Build context optimization
-└── README.md                    # This documentation
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Client/User   │───▶│   Task API      │───▶│   MySQL DB      │
+│   (curl/browser)│    │   (Port 8080)   │    │   (Port 3306)   │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+                                │
+                                ▼
+                       ┌─────────────────┐
+                       │   Prometheus    │
+                       │   (Port 9090)   │
+                       │   Metrics       │
+                       └─────────────────┘
+                                │
+                                ▼
+                       ┌─────────────────┐
+                       │   Grafana       │
+                       │   (Port 3000)   │
+                       │   Dashboards    │
+                       └─────────────────┘
 ```
 
-## Quick Start Guide
+### Component Details:
+- **Task API**: Spring Boot application exposing REST endpoints
+- **MySQL**: Database for persistent task storage
+- **Prometheus**: Metrics collection and storage
+- **Grafana**: Metrics visualization and dashboards
 
-### 1. Navigate to Containerization Directory
+## 📋 Prerequisites
+
+### Software Requirements:
+- **Docker**: Version 20.10+
+- **Docker Compose**: Version 2.0+
+- **System Resources**: 4GB+ RAM, 10GB+ disk space
+- **Network Ports**: 3000, 3306, 8080, 9090 available
+
+### Verification Commands:
 ```bash
-cd RestAPI-Task-Management-Demo/4-containerization
+# Check Docker installation
+docker --version
+docker-compose --version
+
+# Check available ports
+sudo netstat -tulpn | grep -E ':(3000|3306|8080|9090)'
 ```
 
-### 2. Start All Services
+## 🚀 Local Setup and Deployment
+
+### Project Structure:
+```
+RestAPI-Task-Management-Demo/
+├── 2-source-code/              # Spring Boot source code
+│   ├── src/main/java/          # Java application code
+│   ├── src/main/resources/     # Configuration files
+│   ├── pom.xml                 # Maven dependencies
+│   └── Dockerfile              # Application container image
+└── 4-containerization/         # Docker deployment
+    ├── docker-compose.yml      # Multi-service orchestration
+    ├── monitoring/             # Monitoring configuration
+    │   └── prometheus.yml      # Prometheus scrape config
+    └── README.md              # Documentation
+```
+
+### Step 1: Build Application Image
 ```bash
-# Start all services in detached mode
+# Navigate to source code directory
+cd RestAPI-Task-Management-Demo/2-source-code
+
+# Build Docker image
+sudo docker build -t task-management-api .
+```
+
+**What happens during build:**
+- Multi-stage Docker build process
+- Stage 1: Compile Java application with Maven
+- Stage 2: Create runtime image with JRE
+- Result: Optimized container image (~265MB)
+
+### Step 2: Start Services with Docker Compose
+```bash
+# Navigate to containerization directory
+cd ../4-containerization
+
+# Start all services
 sudo docker compose up -d
+```
 
-# Check service status
+**Services Started:**
+1. **MySQL Database** (`task-mysql`)
+   - Port: 3306
+   - Database: `taskdb`
+   - User: `taskuser` / Password: `taskpass`
+
+2. **Task Management API** (`task-api`)
+   - Port: 8080
+   - Depends on MySQL health check
+   - Exposes metrics at `/actuator/prometheus`
+
+3. **Prometheus** (`task-prometheus`)
+   - Port: 9090
+   - Scrapes metrics from Task API
+   - Stores time-series data
+
+4. **Grafana** (`task-grafana`)
+   - Port: 3000
+   - Username: `admin` / Password: `admin123`
+   - Visualizes Prometheus metrics
+
+### Step 3: Verify Deployment
+```bash
+# Check all containers are running
 sudo docker compose ps
+
+# Expected output:
+# NAME             IMAGE                    STATUS
+# task-api         task-management-api      Up (healthy)
+# task-grafana     grafana/grafana:latest   Up
+# task-mysql       mysql:8.0                Up (healthy)
+# task-prometheus  prom/prometheus:latest   Up
 ```
 
-### 3. Wait for Services to Initialize
-```bash
-# Wait for all services to be ready (approximately 90 seconds)
-sleep 90
+## 🧪 Application Testing
 
-# Verify application health
+### Health Check Verification
+```bash
+# Application health check
 curl http://localhost:8080/actuator/health
+
+# Expected response:
+{
+  "status": "UP",
+  "components": {
+    "db": {"status": "UP"},
+    "diskSpace": {"status": "UP"},
+    "ping": {"status": "UP"}
+  }
+}
 ```
 
-### 4. Test API Functionality
+### API Endpoint Testing
+
+#### 1. Get All Tasks (Initially Empty)
 ```bash
-# Test health endpoint
-curl http://localhost:8080/actuator/health
-
-# Get all tasks (initially empty)
 curl http://localhost:8080/api/tasks
 
-# Create a new task
+# Expected response: []
+```
+
+#### 2. Create New Task
+```bash
 curl -X POST http://localhost:8080/api/tasks \
   -H "Content-Type: application/json" \
-  -d '{"title":"Test Task","description":"Testing local deployment","status":"PENDING"}'
+  -d '{
+    "title": "Complete DevOps Project",
+    "description": "Set up monitoring and testing",
+    "status": "PENDING"
+  }'
 
-# Retrieve all tasks (should show created task)
-curl http://localhost:8080/api/tasks
+# Expected response:
+{
+  "id": 1,
+  "title": "Complete DevOps Project",
+  "description": "Set up monitoring and testing",
+  "status": "PENDING",
+  "createdAt": "2024-01-15T10:30:00",
+  "updatedAt": "2024-01-15T10:30:00"
+}
+```
 
-# Create another task
-curl -X POST http://localhost:8080/api/tasks \
-  -H "Content-Type: application/json" \
-  -d '{"title":"Second Task","description":"Another test","status":"IN_PROGRESS"}'
-
-# Get specific task by ID
+#### 3. Get Specific Task
+```bash
 curl http://localhost:8080/api/tasks/1
 
-# Update a task
-curl -X PUT http://localhost:8080/api/tasks/1 \
-  -H "Content-Type: application/json" \
-  -d '{"title":"Updated Task","description":"Task updated","status":"COMPLETED"}'
-
-# Delete a task
-curl -X DELETE http://localhost:8080/api/tasks/2
+# Returns the created task details
 ```
 
-## Service Access Points
+#### 4. Update Task
+```bash
+curl -X PUT http://localhost:8080/api/tasks/1 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Complete DevOps Project",
+    "description": "Set up monitoring and testing",
+    "status": "COMPLETED"
+  }'
+```
 
-### Application Services
-| Service | URL | Credentials | Purpose |
-|---------|-----|-------------|---------|
-| Task API | http://localhost:8080 | None | REST API endpoints |
-| Health Check | http://localhost:8080/actuator/health | None | Application health |
-| Metrics | http://localhost:8080/actuator/prometheus | None | Prometheus metrics |
+#### 5. Delete Task
+```bash
+curl -X DELETE http://localhost:8080/api/tasks/1
 
-### Monitoring Services
-| Service | URL | Credentials | Purpose |
-|---------|-----|-------------|---------|
-| Grafana | http://localhost:3000 | admin/admin123 | Monitoring dashboards |
-| Prometheus | http://localhost:9090 | None | Metrics collection |
+# Expected response: 204 No Content
+```
 
-### Database Access
+### Database Verification
 ```bash
 # Connect to MySQL database
 sudo docker exec -it task-mysql mysql -u taskuser -p taskdb
@@ -100,283 +226,504 @@ sudo docker exec -it task-mysql mysql -u taskuser -p taskdb
 # Inside MySQL console:
 SHOW TABLES;
 SELECT * FROM tasks;
+DESCRIBE tasks;
 EXIT;
 ```
 
-## Docker Compose Configuration
+## 📊 Monitoring Stack Setup
 
-### Services Overview
-```yaml
-services:
-  mysql:        # Database service
-  app:          # Spring Boot application
-  prometheus:   # Metrics collection
-  grafana:      # Monitoring dashboards
+### Understanding the Monitoring Flow
+
+```
+Task API ──metrics──▶ Prometheus ──data──▶ Grafana ──dashboards──▶ User
+   │                      │                    │
+   │                      │                    │
+   ▼                      ▼                    ▼
+/actuator/prometheus   :9090/metrics      :3000/dashboards
 ```
 
-### Key Features
-- **Health Checks**: All services have health check configurations
-- **Dependency Management**: App waits for MySQL to be healthy
-- **Persistent Storage**: MySQL data and Grafana configurations persist
-- **Network Isolation**: Custom bridge network for service communication
-- **Environment Variables**: Configurable database credentials
+### Metrics Exposed by Task API
 
-## Troubleshooting Guide
+The Spring Boot application automatically exposes metrics at `/actuator/prometheus`:
 
-### Issues Encountered During Build
-
-#### 1. Docker Image Not Found Error
-**Problem:**
-```
-failed to solve: openjdk:17-jre-slim: not found
-```
-
-**Root Cause:** The `openjdk:17-jre-slim` Docker image was deprecated and removed from Docker Hub.
-
-**Solution Applied:**
-```dockerfile
-# Changed from:
-FROM openjdk:17-jre-slim
-
-# To:
-FROM eclipse-temurin:17-jre-alpine
-```
-
-**Fix Commands:**
 ```bash
-# Update Dockerfile with correct base images
-cat > Dockerfile << 'EOF'
-FROM eclipse-temurin:17-jdk-alpine as builder
-# ... rest of Dockerfile
-FROM eclipse-temurin:17-jre-alpine
-# ... rest of Dockerfile
+# View all available metrics
+curl http://localhost:8080/actuator/prometheus
+
+# Key metrics include:
+# - http_server_requests_seconds_count: Request count
+# - http_server_requests_seconds_sum: Response time sum
+# - jvm_memory_used_bytes: JVM memory usage
+# - system_cpu_usage: CPU utilization
+# - hikaricp_connections_*: Database connection pool
+```
+
+### Metric Categories:
+
+#### 1. Application Metrics
+- **Request Count**: `http_server_requests_seconds_count`
+- **Response Time**: `http_server_requests_seconds_sum`
+- **Error Rate**: Requests with status 4xx/5xx
+
+#### 2. JVM Metrics
+- **Memory Usage**: `jvm_memory_used_bytes{area="heap"}`
+- **Garbage Collection**: `jvm_gc_pause_seconds_count`
+- **Thread Count**: `jvm_threads_live_threads`
+
+#### 3. System Metrics
+- **CPU Usage**: `system_cpu_usage`
+- **Disk Space**: `disk_free_bytes`
+- **Process Uptime**: `process_uptime_seconds`
+
+#### 4. Database Metrics
+- **Active Connections**: `hikaricp_connections_active`
+- **Connection Pool Usage**: `hikaricp_connections_usage`
+- **Connection Acquire Time**: `hikaricp_connections_acquire_seconds`
+
+## 🔧 Prometheus Configuration
+
+### Initial Configuration Issue
+By default, Prometheus only scrapes itself. We need to configure it to scrape our Task API.
+
+### Step 1: Create Prometheus Configuration
+```bash
+# Create monitoring directory
+mkdir -p monitoring
+
+# Create Prometheus configuration
+cat > monitoring/prometheus.yml << 'EOF'
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+  
+  - job_name: 'task-management-api'
+    static_configs:
+      - targets: ['app:8080']
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 30s
 EOF
 ```
 
-#### 2. Source Files Not Found Error
-**Problem:**
-```
-failed to calculate checksum: "/.mvn": not found
-failed to calculate checksum: "/src": not found
-failed to calculate checksum: "/pom.xml": not found
-```
-
-**Root Cause:** Dockerfile was looking for source files in the wrong directory context.
-
-**Solution Applied:**
-1. **Option 1**: Copy source files to build context
+### Step 2: Apply Configuration to Running Container
 ```bash
-cp -r ../2-source-code/* ./
+# Copy configuration to Prometheus container
+sudo docker cp monitoring/prometheus.yml task-prometheus:/etc/prometheus/prometheus.yml
+
+# Restart Prometheus to reload configuration
+sudo docker restart task-prometheus
+
+# Wait for restart
+sleep 30
 ```
 
-2. **Option 2**: Build from source directory (Used)
+### Step 3: Verify Configuration
 ```bash
-cd ../2-source-code
-sudo docker build -t task-management-api .
+# Check if configuration is loaded
+sudo docker exec task-prometheus cat /etc/prometheus/prometheus.yml
+
+# Should show your custom configuration with task-management-api job
 ```
 
-3. **Option 3**: Update docker-compose.yml to use pre-built image
-```yaml
-services:
-  app:
-    image: task-management-api:latest  # Instead of build context
+### Step 4: Verify Targets
+1. Open Prometheus UI: http://localhost:9090
+2. Go to **Status** → **Targets**
+3. Verify both targets are **UP**:
+   - `prometheus` (localhost:9090)
+   - `task-management-api` (app:8080)
+
+### Prometheus Query Examples
+
+#### Basic Queries:
+```promql
+# Check if metrics are available
+up
+
+# Application uptime
+up{job="task-management-api"}
+
+# Total request count
+http_server_requests_seconds_count
+
+# JVM memory usage
+jvm_memory_used_bytes{area="heap"}
 ```
 
-#### 3. Maven Build Error - Missing Dependency Version
-**Problem:**
-```
-'dependencies.dependency.version' for mysql:mysql-connector-java:jar is missing
-```
+#### Advanced Queries:
+```promql
+# Request rate (requests per second)
+rate(http_server_requests_seconds_count[5m])
 
-**Root Cause:** The `pom.xml` file had MySQL dependency without explicit version.
+# Average response time
+http_server_requests_seconds_sum / http_server_requests_seconds_count
 
-**Solution Applied:**
-```xml
-<!-- Fixed dependency with explicit version -->
-<dependency>
-    <groupId>mysql</groupId>
-    <artifactId>mysql-connector-java</artifactId>
-    <version>8.0.33</version>
-    <scope>runtime</scope>
-</dependency>
+# Error rate percentage
+rate(http_server_requests_seconds_count{status=~"5.."}[5m]) / rate(http_server_requests_seconds_count[5m]) * 100
+
+# Memory usage by heap area
+sum by (id) (jvm_memory_used_bytes{area="heap"})
 ```
 
-**Fix Commands:**
+## 📈 Grafana Dashboard Creation
+
+### Step 1: Access Grafana
+- **URL**: http://localhost:3000
+- **Username**: `admin`
+- **Password**: `admin123`
+
+### Step 2: Add Prometheus Data Source
+1. Click **Configuration** (gear icon) → **Data Sources**
+2. Click **Add data source**
+3. Select **Prometheus**
+4. Configure:
+   - **Name**: `prometheus`
+   - **URL**: `http://task-prometheus:9090`
+   - **Access**: `Server (default)`
+5. Click **Save & Test**
+6. Verify green checkmark: "Data source is working"
+
+### Step 3: Create Dashboard
+1. Click **+** (plus icon) → **Dashboard**
+2. Click **Add new panel**
+
+### Step 4: Create Panels
+
+#### Panel 1: API Request Rate
+- **Query**: `sum(rate(http_server_requests_seconds_count[5m]))`
+- **Title**: "API Request Rate"
+- **Unit**: Field → Unit → Throughput → "requests/sec"
+- **Visualization**: Time series
+- Click **Apply**
+
+#### Panel 2: JVM Memory Usage
+- Click **Add panel**
+- **Query**: `jvm_memory_used_bytes{area="heap"}`
+- **Title**: "JVM Memory Usage"
+- **Unit**: Field → Unit → Data → "bytes"
+- **Visualization**: Time series
+- Click **Apply**
+
+#### Panel 3: Response Time
+- Click **Add panel**
+- **Query**: `http_server_requests_seconds_sum / http_server_requests_seconds_count`
+- **Title**: "Average Response Time"
+- **Unit**: Field → Unit → Time → "seconds"
+- **Visualization**: Stat
+- Click **Apply**
+
+#### Panel 4: Database Connections
+- Click **Add panel**
+- **Query**: `hikaricp_connections_active`
+- **Title**: "Active Database Connections"
+- **Unit**: Field → Unit → Short → "short"
+- **Visualization**: Gauge
+- Click **Apply**
+
+### Step 5: Save Dashboard
+1. Click **Save** (disk icon)
+2. **Dashboard name**: "Task Management API Monitoring"
+3. **Folder**: General
+4. Click **Save**
+
+### Step 6: Generate Test Data
 ```bash
-# Updated pom.xml with complete dependency configuration
-cat > pom.xml << 'EOF'
-# ... complete pom.xml with proper MySQL dependency
+# Create script to generate API traffic
+cat > generate_traffic.sh << 'EOF'
+#!/bin/bash
+for i in {1..20}; do
+  # Create task
+  curl -X POST http://localhost:8080/api/tasks \
+    -H "Content-Type: application/json" \
+    -d "{\"title\":\"Load Test Task $i\",\"description\":\"Testing metrics\"}"
+  
+  # Get all tasks
+  curl http://localhost:8080/api/tasks
+  
+  # Health check
+  curl http://localhost:8080/actuator/health
+  
+  sleep 2
+done
 EOF
+
+chmod +x generate_traffic.sh
+./generate_traffic.sh
 ```
 
-#### 4. Maven Wrapper Missing
-**Problem:** Dockerfile expected Maven wrapper files (`.mvn/`, `mvnw`) that weren't present.
+### Dashboard Features
 
-**Solution Applied:**
-```dockerfile
-# Changed from Maven wrapper approach:
-COPY .mvn/ .mvn/
-COPY mvnw pom.xml ./
-RUN ./mvnw dependency:go-offline -B
+#### Time Range Selection
+- **Default**: Last 6 hours
+- **Options**: 5m, 15m, 30m, 1h, 6h, 12h, 24h
+- **Custom**: Set specific date/time ranges
 
-# To direct Maven installation:
-COPY pom.xml ./
-COPY src ./src
-RUN apk add --no-cache maven
-RUN mvn clean package -DskipTests
-```
+#### Auto-Refresh
+- **Options**: Off, 5s, 10s, 30s, 1m, 5m, 15m, 30m, 1h
+- **Recommended**: 30s for real-time monitoring
 
-## Monitoring and Observability
+#### Panel Interactions
+- **Zoom**: Click and drag on time series
+- **Legend**: Click to hide/show series
+- **Tooltip**: Hover for detailed values
+- **Full Screen**: Click panel title → View
 
-### Grafana Dashboard Setup
-1. **Access Grafana**: http://localhost:3000
-2. **Login**: admin/admin123
-3. **Add Prometheus Data Source**:
-   - URL: http://prometheus:9090
-   - Access: Server (default)
-4. **Import Dashboards**:
-   - Spring Boot Dashboard (ID: 12900)
-   - JVM Dashboard (ID: 4701)
+## 🔍 Troubleshooting Guide
 
-### Prometheus Metrics
-- **Application Metrics**: http://localhost:8080/actuator/prometheus
-- **Prometheus UI**: http://localhost:9090
-- **Key Metrics**:
-  - `http_server_requests_seconds_count` - Request count
-  - `http_server_requests_seconds_sum` - Response time
-  - `jvm_memory_used_bytes` - Memory usage
+### Common Issues and Solutions
 
-## Maintenance Commands
+#### 1. Containers Not Starting
+**Problem**: `docker compose ps` shows containers as "Exited"
 
-### Service Management
+**Diagnosis**:
 ```bash
-# Start services
-sudo docker compose up -d
+# Check container logs
+sudo docker compose logs mysql
+sudo docker compose logs app
+sudo docker compose logs prometheus
+sudo docker compose logs grafana
+```
 
-# Stop services
-sudo docker compose down
+**Solutions**:
+- **Port conflicts**: Change ports in docker-compose.yml
+- **Resource issues**: Increase Docker memory allocation
+- **Permission issues**: Check file permissions
+
+#### 2. Application Health Check Failing
+**Problem**: `curl http://localhost:8080/actuator/health` returns connection refused
+
+**Diagnosis**:
+```bash
+# Check if container is running
+sudo docker ps | grep task-api
+
+# Check application logs
+sudo docker logs task-api
+
+# Check if port is bound
+sudo netstat -tulpn | grep :8080
+```
+
+**Solutions**:
+- Wait for application startup (can take 60-90 seconds)
+- Check database connectivity
+- Verify environment variables
+
+#### 3. Database Connection Issues
+**Problem**: Application shows database connection errors
+
+**Diagnosis**:
+```bash
+# Check MySQL container
+sudo docker logs task-mysql
+
+# Test database connectivity
+sudo docker exec task-api nc -zv mysql 3306
+
+# Check database credentials
+sudo docker exec -it task-mysql mysql -u taskuser -p taskdb
+```
+
+**Solutions**:
+- Verify MySQL is healthy: `sudo docker compose ps`
+- Check environment variables in docker-compose.yml
+- Ensure proper startup order with `depends_on`
+
+#### 4. Prometheus Not Scraping Metrics
+**Problem**: Prometheus targets show as "DOWN" or no metrics available
+
+**Diagnosis**:
+```bash
+# Check Prometheus targets
+curl http://localhost:9090/api/v1/targets
+
+# Verify metrics endpoint
+curl http://localhost:8080/actuator/prometheus
+
+# Check Prometheus configuration
+sudo docker exec task-prometheus cat /etc/prometheus/prometheus.yml
+```
+
+**Solutions**:
+- Copy correct configuration: `sudo docker cp monitoring/prometheus.yml task-prometheus:/etc/prometheus/prometheus.yml`
+- Restart Prometheus: `sudo docker restart task-prometheus`
+- Verify network connectivity between containers
+
+#### 5. Grafana Data Source Connection Failed
+**Problem**: "Data source is not working" error in Grafana
+
+**Diagnosis**:
+```bash
+# Check if Grafana can reach Prometheus
+sudo docker exec task-grafana ping task-prometheus
+
+# Check Prometheus is responding
+curl http://localhost:9090/api/v1/query?query=up
+```
+
+**Solutions**:
+- Use correct URL: `http://task-prometheus:9090`
+- Verify both containers are on same network
+- Check Prometheus is running and healthy
+
+#### 6. No Data in Grafana Panels
+**Problem**: Panels show "No data" despite correct queries
+
+**Diagnosis**:
+- Check time range (last 6 hours by default)
+- Verify metrics exist in Prometheus
+- Generate API traffic to create metrics
+
+**Solutions**:
+```bash
+# Generate test data
+curl http://localhost:8080/api/tasks
+curl -X POST http://localhost:8080/api/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Test","description":"Generate metrics"}'
+
+# Wait 1-2 minutes for metrics to appear
+# Refresh Grafana dashboard
+```
+
+### Performance Optimization
+
+#### Container Resource Allocation
+```yaml
+# Add to docker-compose.yml services
+deploy:
+  resources:
+    limits:
+      memory: 1G
+      cpus: '0.5'
+    reservations:
+      memory: 512M
+      cpus: '0.25'
+```
+
+#### JVM Tuning
+```yaml
+# Environment variables for Task API
+environment:
+  - JAVA_OPTS=-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC
+```
+
+#### Database Optimization
+```yaml
+# MySQL environment variables
+environment:
+  - MYSQL_INNODB_BUFFER_POOL_SIZE=512M
+  - MYSQL_MAX_CONNECTIONS=100
+```
+
+## 📋 Complete Workflow Summary
+
+### Initial Setup (One-time)
+1. **Build Application Image**:
+   ```bash
+   cd 2-source-code
+   sudo docker build -t task-management-api .
+   ```
+
+2. **Start Services**:
+   ```bash
+   cd ../4-containerization
+   sudo docker compose up -d
+   ```
+
+3. **Configure Prometheus**:
+   ```bash
+   mkdir -p monitoring
+   # Create prometheus.yml configuration
+   sudo docker cp monitoring/prometheus.yml task-prometheus:/etc/prometheus/prometheus.yml
+   sudo docker restart task-prometheus
+   ```
+
+4. **Setup Grafana**:
+   - Access: http://localhost:3000 (admin/admin123)
+   - Add Prometheus data source: http://task-prometheus:9090
+   - Create dashboard with monitoring panels
+
+### Daily Testing Workflow
+1. **Verify Services**:
+   ```bash
+   sudo docker compose ps
+   curl http://localhost:8080/actuator/health
+   ```
+
+2. **Test API Endpoints**:
+   ```bash
+   # CRUD operations testing
+   curl http://localhost:8080/api/tasks
+   # Create, update, delete tasks
+   ```
+
+3. **Monitor Metrics**:
+   - Prometheus: http://localhost:9090
+   - Grafana: http://localhost:3000
+   - Check dashboards for real-time metrics
+
+4. **Generate Load for Testing**:
+   ```bash
+   # Run traffic generation script
+   ./generate_traffic.sh
+   ```
+
+### Maintenance Commands
+```bash
+# View logs
+sudo docker compose logs -f app
 
 # Restart specific service
 sudo docker compose restart app
 
-# View logs
-sudo docker compose logs -f app
-sudo docker compose logs mysql
+# Update application
+sudo docker build -t task-management-api .
+sudo docker compose up -d
 
-# Check service status
-sudo docker compose ps
-```
-
-### Data Management
-```bash
 # Backup database
 sudo docker exec task-mysql mysqldump -u taskuser -p taskdb > backup.sql
 
-# Restore database
-sudo docker exec -i task-mysql mysql -u taskuser -p taskdb < backup.sql
-
-# Clear all data (destructive)
+# Cleanup
 sudo docker compose down -v
+sudo docker system prune -f
 ```
 
-### Image Management
-```bash
-# Rebuild application image
-sudo docker build -t task-management-api .
-
-# Remove unused images
-sudo docker image prune
-
-# View image sizes
-sudo docker images
-```
-
-## Performance Testing
-
-### Load Testing with curl
-```bash
-# Simple load test
-for i in {1..10}; do
-  curl -X POST http://localhost:8080/api/tasks \
-    -H "Content-Type: application/json" \
-    -d "{\"title\":\"Load Test $i\",\"description\":\"Performance testing\"}" &
-done
-wait
-
-# Check created tasks
-curl http://localhost:8080/api/tasks
-```
-
-### Resource Monitoring
-```bash
-# Monitor container resources
-sudo docker stats
-
-# Check container processes
-sudo docker exec task-api ps aux
-
-# View container logs in real-time
-sudo docker compose logs -f
-```
-
-## Security Considerations
-
-### Container Security
-- **Non-root User**: Application runs as `appuser` (UID 1000)
-- **Minimal Base Image**: Uses Alpine Linux for smaller attack surface
-- **Health Checks**: Built-in container health monitoring
-- **Network Isolation**: Services communicate via custom bridge network
-
-### Data Security
-- **Environment Variables**: Database credentials via environment variables
-- **Volume Permissions**: Proper file ownership and permissions
-- **Network Policies**: Isolated container networking
-
-## Cleanup Procedures
-
-### Complete Cleanup
-```bash
-# Stop and remove all containers, networks, and volumes
-sudo docker compose down -v
-
-# Remove application image
-sudo docker rmi task-management-api
-
-# Clean up unused Docker resources
-sudo docker system prune -a
-```
-
-### Selective Cleanup
-```bash
-# Stop services only
-sudo docker compose stop
-
-# Remove containers but keep volumes
-sudo docker compose down
-
-# Remove specific service
-sudo docker compose rm app
-```
-
-## Success Verification Checklist
-
+### Success Verification Checklist
 - [ ] All containers running: `sudo docker compose ps`
-- [ ] Health check passing: `curl http://localhost:8080/actuator/health`
-- [ ] API responding: `curl http://localhost:8080/api/tasks`
+- [ ] Application healthy: `curl http://localhost:8080/actuator/health`
+- [ ] API endpoints working: CRUD operations successful
 - [ ] Database connected: MySQL status in health check
-- [ ] Grafana accessible: http://localhost:3000
-- [ ] Prometheus accessible: http://localhost:9090
-- [ ] CRUD operations working: Create, read, update, delete tasks
-- [ ] Monitoring data flowing: Metrics visible in Grafana
+- [ ] Prometheus scraping: Targets UP at http://localhost:9090/targets
+- [ ] Metrics available: Queries return data in Prometheus
+- [ ] Grafana connected: Data source test successful
+- [ ] Dashboards working: Panels showing real-time data
 
-## Troubleshooting Quick Reference
+## 🎯 Key Learning Outcomes
 
-| Issue | Command | Expected Result |
-|-------|---------|----------------|
-| Container not starting | `sudo docker compose logs <service>` | Error details |
-| API not responding | `curl http://localhost:8080/actuator/health` | `{"status":"UP"}` |
-| Database connection | `sudo docker exec -it task-mysql mysql -u taskuser -p` | MySQL prompt |
-| Port conflicts | `sudo netstat -tulpn \| grep :8080` | No output if free |
-| Resource issues | `sudo docker stats` | Container resource usage |
+### Technical Skills Demonstrated
+1. **Containerization**: Docker multi-stage builds, Docker Compose orchestration
+2. **Monitoring**: Prometheus metrics collection, Grafana visualization
+3. **Spring Boot**: REST API development, Actuator endpoints
+4. **Database Integration**: MySQL connectivity, connection pooling
+5. **DevOps Practices**: Health checks, logging, configuration management
 
-This documentation provides a complete guide for local testing and troubleshooting of the Task Management API using Docker Compose.
+### Monitoring Best Practices
+1. **Metrics Collection**: Comprehensive application and infrastructure metrics
+2. **Visualization**: Clear, actionable dashboards
+3. **Alerting**: Threshold-based monitoring (can be extended)
+4. **Performance**: Resource utilization tracking
+5. **Troubleshooting**: Systematic debugging approach
+
+### Production Readiness
+This local setup demonstrates production-ready practices:
+- Health checks and graceful startup
+- Metrics-driven monitoring
+- Containerized deployment
+- Configuration management
+- Database persistence
+- Security considerations (non-root containers)
+
+This comprehensive setup provides a solid foundation for understanding modern application monitoring and observability practices in a containerized environment.
