@@ -450,10 +450,10 @@ GET /api/tasks?department=ENGINEERING,DEVOPS&priority=HIGH,CRITICAL
 ### **Morning Standup (9:00 AM)**
 Each team member checks their role-specific dashboard:
 
-**John (Developer)**: "Working on auth API, 60% done, no blockers"
-**Lisa (QA)**: "Waiting for auth API to test, will start mobile testing"
-**Mike (Senior Dev)**: "Fixed payment bug, deploying to staging today"
-**Alex (DevOps)**: "Staging environment ready, production deploy scheduled"
+- **John (Developer)**: "Working on auth API, 60% done, no blockers"
+- **Lisa (QA)**: "Waiting for auth API to test, will start mobile testing"
+- **Mike (Senior Dev)**: "Fixed payment bug, deploying to staging today"
+- **Alex (DevOps)**: "Staging environment ready, production deploy scheduled"
 
 ### **Urgent Bug Report (2:30 PM)**
 ```bash
