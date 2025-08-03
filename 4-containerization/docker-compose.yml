@@ -16,13 +16,20 @@ services:
       - mysql_data:/var/lib/mysql
     networks:
       - task-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+      interval: 30s
+      start_period: 60s
 
   # Backend Application
   app:
     build: .
     container_name: task-app
     depends_on:
-      - mysql
+      mysql:
+        condition: service_healthy
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/taskdb
       SPRING_DATASOURCE_USERNAME: taskuser
@@ -65,12 +72,15 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+    volumes:
+      - grafana_data:/var/lib/grafana
     networks:
       - task-network
 
 volumes:
   mysql_data:
+  grafana_data:
 
 networks:
   task-network:
